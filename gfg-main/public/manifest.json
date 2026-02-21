@@ -1,0 +1,28 @@
+{
+    "name": "Peak-X Sender",
+    "short_name": "Peak-X",
+    "description": "Accelerated email outreach tool",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0a0f1c",
+    "theme_color": "#22c55e",
+    "orientation": "portrait-primary",
+    "icons": [
+        {
+            "src": "/logo.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/favicon.ico",
+            "sizes": "64x64",
+            "type": "image/x-icon"
+        }
+    ],
+    "categories": [
+        "productivity",
+        "business"
+    ],
+    "lang": "en"
+}

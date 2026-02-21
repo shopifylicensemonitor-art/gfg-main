@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Peak-X Sender -->
+  <title>Peak-X Sender</title>
+  <meta name="description" content="Lightning-fast bulk email outreach tool." />
+  <meta name="author" content="Peak-X" />
+
+  <meta property="og:title" content="Peak-X Sender" />
+  <meta property="og:description" content="Lightning-fast bulk email outreach tool." />
+  <meta property="og:type" content="website" />
+  <!-- <meta property="og:image" content="..." /> -->
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content="@PeakX" />
+  <!-- <meta name="twitter:image" content="..." /> -->
+  
+  <link rel="icon" type="image/svg+xml" href="/peak-x-logo.svg" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#22c55e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="/logo.png" />
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+  <script>
+    // Register Service Worker for PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('SW registered:', reg.scope))
+          .catch(err => console.log('SW registration failed:', err));
+      });
+    }
+  </script>
+</body>
+
+</html>
