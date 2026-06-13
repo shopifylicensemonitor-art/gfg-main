@@ -1,12 +1,16 @@
 import { useMemo, memo, CSSProperties, useState, useEffect, useCallback } from 'react';
-import { Send, RefreshCw, Mail, Download } from 'lucide-react';
+import { Send, RefreshCw, Mail, Download, ArrowUpAZ, ArrowDownZA, Globe, Building2, List, Layers, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { EmailEntry } from '@/hooks/useEmailList';
-import { List } from 'react-window';
+import { List as VList } from 'react-window';
 import { toast } from '@/hooks/use-toast';
+import { PUBLIC_PROVIDERS } from '@/lib/publicProviders';
+import { buildMailtoLink } from '@/lib/randomizeMailto';
 
 export type FilterType = 'all' | 'sent' | 'pending';
+export type DomainFilterType = 'all' | 'public' | 'personal';
+export type SortType = 'default' | 'az' | 'za';
 
 interface GeneratedEmailsProps {
   emails: EmailEntry[];
@@ -18,6 +22,14 @@ interface GeneratedEmailsProps {
   searchQuery: string;
   userName: string;
   sentStatus: Record<string, boolean>;
+  cc: string;
+  bcc: string;
+  myInboxTo: string;
+  ccRoutingMode: 'reroute' | 'normal';
+  enableRandomization: boolean;
+  onSendBatchClick: (emails: string[]) => void;
+  bccBatchSize: number;
+  bccBatchOpenCount: number;
 }
 
 // Row component for react-window v2.2.5
@@ -29,6 +41,11 @@ interface RowProps {
   userName: string;
   sentStatus: Record<string, boolean>;
   searchQuery: string;
+  cc: string;
+  bcc: string;
+  myInboxTo: string;
+  ccRoutingMode: 'reroute' | 'normal';
+  enableRandomization: boolean;
 }
 
 // Helper to highlight search matches in email text
@@ -51,7 +68,7 @@ function HighlightedEmail({ email, query }: { email: string; query: string }) {
 
 const Row = memo(
   ({ index, style, ariaAttributes, ...props }: { index: number; style: CSSProperties; ariaAttributes: { "aria-posinset": number; "aria-setsize": number; role: "listitem" } } & RowProps) => {
-    const { entries, subject, body, onSendClick, userName, sentStatus, searchQuery } = props;
+    const { entries, subject, body, onSendClick, userName, sentStatus, searchQuery, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization } = props;
     const entry = entries[index];
     if (!entry) return <></>;
 
@@ -70,25 +87,44 @@ const Row = memo(
 
     const [localPart, domainPart] = entry.email.split('@');
     const pSname = domainPart ? domainPart.split('.')[0] : '';
+    const displayName = entry.name || localPart;
 
-    const processedSubject = subject
-      .replace(/{name}/g, localPart)
+    let processedSubject = subject
+      .replace(/{name}/g, displayName)
       .replace(/{store}/g, domainPart || '')
       .replace(/{sname}/g, pSname)
       .replace(/{brand}/g, userName);
 
-    const processedBody = body
-      .replace(/{name}/g, localPart)
+    let processedBody = body
+      .replace(/{name}/g, displayName)
       .replace(/{store}/g, domainPart || '')
       .replace(/{sname}/g, pSname)
       .replace(/{brand}/g, userName);
 
-    const mailtoParams = new URLSearchParams();
-    if (processedSubject) mailtoParams.append('subject', processedSubject);
-    if (processedBody) mailtoParams.append('body', processedBody);
+    // Double curly brace {{variable}} replacements
+    if (entry.fields) {
+      processedSubject = processedSubject.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+        return entry.fields?.[key] !== undefined ? entry.fields[key] : '';
+      });
+      processedBody = processedBody.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+        return entry.fields?.[key] !== undefined ? entry.fields[key] : '';
+      });
+    } else {
+      processedSubject = processedSubject.replace(/\{\{(\w+)\}\}/g, '');
+      processedBody = processedBody.replace(/\{\{(\w+)\}\}/g, '');
+    }
 
     const mailtoLink = isValid
-      ? `mailto:${entry.email}?${mailtoParams.toString().replace(/\+/g, '%20')}`
+      ? buildMailtoLink({
+          recipient: entry.email,
+          subject: processedSubject,
+          body: processedBody,
+          cc,
+          bcc,
+          myInboxTo,
+          ccRoutingMode,
+          enableRandom: enableRandomization,
+        })
       : '#';
 
     const textStyles = !isValid
@@ -98,6 +134,9 @@ const Row = memo(
         : 'text-foreground hover:text-primary';
 
     const LinkComponent = isValid && !isSent ? 'a' : 'div';
+
+    // Domain indicator
+    const isPublic = domainPart ? PUBLIC_PROVIDERS.has(domainPart.toLowerCase()) : false;
 
     return (
       <div style={style} {...ariaAttributes} className="px-1 box-border">
@@ -114,12 +153,35 @@ const Row = memo(
               {entry.sequenceId.toString().padStart(2, '0')}
             </span>
             <span className={`font-mono text-[12px] truncate ${textStyles}`}>
-              <HighlightedEmail email={entry.email} query={searchQuery} />
+              {entry.name ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="font-semibold text-foreground truncate max-w-[120px]">{entry.name}</span>
+                  <span className="text-muted-foreground/60 text-[11px]">&lt;<HighlightedEmail email={entry.email} query={searchQuery} />&gt;</span>
+                </span>
+              ) : (
+                <HighlightedEmail email={entry.email} query={searchQuery} />
+              )}
             </span>
+            {entry.fields && (
+              <span className="hidden sm:inline-flex items-center gap-1.5 ml-2 text-[9px] text-muted-foreground/50 border border-border/10 px-1.5 py-0.5 rounded bg-muted/20">
+                {entry.fields.first_name && <span className="font-semibold">{entry.fields.first_name}</span>}
+                {entry.fields.store_name && <span>• {entry.fields.store_name}</span>}
+                {entry.fields.niche && <span className="italic">• {entry.fields.niche}</span>}
+              </span>
+            )}
             {!isValid && (
               <Badge variant="outline" className="text-[7px] h-3 px-1 border-destructive/10 bg-destructive/[0.03] text-destructive font-normal">
                 Invalid
               </Badge>
+            )}
+            {isValid && (
+              <span title={isPublic ? 'Public provider' : 'Personal/Business domain'} className="shrink-0">
+                {isPublic ? (
+                  <Globe className="h-2.5 w-2.5 text-blue-400/60" />
+                ) : (
+                  <Building2 className="h-2.5 w-2.5 text-emerald-400/60" />
+                )}
+              </span>
             )}
           </div>
 
@@ -153,33 +215,67 @@ export function GeneratedEmails({
   searchQuery,
   userName,
   sentStatus,
+  cc,
+  bcc,
+  myInboxTo,
+  ccRoutingMode,
+  enableRandomization,
+  onSendBatchClick,
+  bccBatchSize,
+  bccBatchOpenCount,
 }: GeneratedEmailsProps) {
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [isOpeningBccBatches, setIsOpeningBccBatches] = useState(false);
+  const [bccBatchQueue, setBccBatchQueue] = useState<EmailEntry[][]>([]);
+  const [bccBatchTotal, setBccBatchTotal] = useState(0);
   const [isOpeningBatch, setIsOpeningBatch] = useState(false);
   const [batchQueue, setBatchQueue] = useState<EmailEntry[]>([]);
   const [batchTotal, setBatchTotal] = useState(0);
+  const [domainFilter, setDomainFilter] = useState<DomainFilterType>('all');
+  const [sort, setSort] = useState<SortType>('default');
 
-  const triggerEmail = (entry: EmailEntry) => {
+  const triggerEmail = useCallback((entry: EmailEntry) => {
     const [localPart, domainPart] = entry.email.split('@');
     const pSname = domainPart ? domainPart.split('.')[0] : '';
-    const processedSubject = subject
-      .replace(/{name}/g, localPart)
+    const displayName = entry.name || localPart;
+    let processedSubject = subject
+      .replace(/{name}/g, displayName)
       .replace(/{store}/g, domainPart || '')
       .replace(/{sname}/g, pSname)
       .replace(/{brand}/g, userName);
-    const processedBody = body
-      .replace(/{name}/g, localPart)
+    let processedBody = body
+      .replace(/{name}/g, displayName)
       .replace(/{store}/g, domainPart || '')
       .replace(/{sname}/g, pSname)
       .replace(/{brand}/g, userName);
 
-    const mailtoParams = new URLSearchParams();
-    if (processedSubject) mailtoParams.append('subject', processedSubject);
-    if (processedBody) mailtoParams.append('body', processedBody);
-    const link = `mailto:${entry.email}?${mailtoParams.toString().replace(/\+/g, '%20')}`;
+    // Double curly brace {{variable}} replacements
+    if (entry.fields) {
+      processedSubject = processedSubject.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+        return entry.fields?.[key] !== undefined ? entry.fields[key] : '';
+      });
+      processedBody = processedBody.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+        return entry.fields?.[key] !== undefined ? entry.fields[key] : '';
+      });
+    } else {
+      processedSubject = processedSubject.replace(/\{\{(\w+)\}\}/g, '');
+      processedBody = processedBody.replace(/\{\{(\w+)\}\}/g, '');
+    }
+
+    const link = buildMailtoLink({
+      recipient: entry.email,
+      subject: processedSubject,
+      body: processedBody,
+      cc,
+      bcc,
+      myInboxTo,
+      ccRoutingMode,
+      enableRandom: enableRandomization,
+    });
 
     window.open(link, '_blank');
     onSendClick(entry.email);
-  };
+  }, [subject, body, userName, onSendClick, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization]);
 
   useEffect(() => {
     if (batchQueue.length > 0 && isOpeningBatch) {
@@ -202,7 +298,84 @@ export function GeneratedEmails({
       window.addEventListener('focus', handleFocus);
       return () => window.removeEventListener('focus', handleFocus);
     }
-  }, [batchQueue, isOpeningBatch, subject, body, userName]);
+  }, [batchQueue.length, isOpeningBatch, triggerEmail]);
+
+  const triggerBccBatch = useCallback((batch: EmailEntry[]) => {
+    if (batch.length === 0) return;
+
+    const recipient = myInboxTo ? myInboxTo.trim() : '';
+    let targetBcc = batch.map(e => e.email).join(',');
+
+    if (bcc.trim()) {
+      targetBcc = `${targetBcc},${bcc.trim()}`;
+    }
+
+    let processedSubject = subject
+      .replace(/{name}/g, 'Team')
+      .replace(/{store}/g, 'your website')
+      .replace(/{sname}/g, 'your website')
+      .replace(/{brand}/g, userName);
+
+    let processedBody = body
+      .replace(/{name}/g, 'Team')
+      .replace(/{store}/g, 'your website')
+      .replace(/{sname}/g, 'your website')
+      .replace(/{brand}/g, userName);
+
+    // Double curly brace {{variable}} replacements fallback for BCC batches
+    processedSubject = processedSubject
+      .replace(/\{\{first_name\}\}/g, 'Team')
+      .replace(/\{\{store_name\}\}/g, 'your website')
+      .replace(/\{\{niche\}\}/g, 'niche')
+      .replace(/\{\{pain_point\}\}/g, 'outreach')
+      .replace(/\{\{(\w+)\}\}/g, '');
+
+    processedBody = processedBody
+      .replace(/\{\{first_name\}\}/g, 'Team')
+      .replace(/\{\{store_name\}\}/g, 'your website')
+      .replace(/\{\{niche\}\}/g, 'niche')
+      .replace(/\{\{pain_point\}\}/g, 'outreach')
+      .replace(/\{\{(\w+)\}\}/g, '');
+
+    const link = buildMailtoLink({
+      recipient,
+      subject: processedSubject,
+      body: processedBody,
+      cc,
+      bcc: targetBcc,
+      myInboxTo: '',
+      ccRoutingMode,
+      enableRandom: enableRandomization,
+    });
+
+    window.open(link, '_blank');
+    
+    const emailsInBatch = batch.map(e => e.email);
+    onSendBatchClick(emailsInBatch);
+  }, [subject, body, userName, onSendBatchClick, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization]);
+
+  useEffect(() => {
+    if (bccBatchQueue.length > 0 && isOpeningBccBatches) {
+      const handleFocus = () => {
+        const timer = setTimeout(() => {
+          setBccBatchQueue(prev => {
+            if (prev.length === 0) {
+              setIsOpeningBccBatches(false);
+              return prev;
+            }
+            const [next, ...rest] = prev;
+            triggerBccBatch(next);
+            if (rest.length === 0) setIsOpeningBccBatches(false);
+            return rest;
+          });
+        }, 800);
+        return () => clearTimeout(timer);
+      };
+
+      window.addEventListener('focus', handleFocus);
+      return () => window.removeEventListener('focus', handleFocus);
+    }
+  }, [bccBatchQueue.length, isOpeningBccBatches, triggerBccBatch]);
 
   // Layer 1: Search Filter (only re-runs when list or query changes)
   const searchFiltered = useMemo(() => {
@@ -211,11 +384,39 @@ export function GeneratedEmails({
     return emails.filter(e => e.email.toLowerCase().includes(query));
   }, [emails, searchQuery]);
 
-  // Layer 2: Status Filter (re-runs when status changes, but only if filter is not 'all')
-  const filteredEmails = useMemo(() => {
-    if (filter === 'all') return searchFiltered;
+  const pendingValid = useMemo(() => {
+    return searchFiltered.filter(e => !sentStatus[e.email] && e.isValid);
+  }, [searchFiltered, sentStatus]);
 
-    // Only perform status filtering if explicitly requested
+  // Pre-computed static batches of all valid emails to prevent dynamic list-shifting
+  const fixedBatches = useMemo(() => {
+    const validEmails = searchFiltered.filter(e => e.isValid);
+    const result: EmailEntry[][] = [];
+    for (let i = 0; i < validEmails.length; i += bccBatchSize) {
+      result.push(validEmails.slice(i, i + bccBatchSize));
+    }
+    return result;
+  }, [searchFiltered, bccBatchSize]);
+
+  // Dynamic filter for batches (All / Sent / Pending)
+  const filteredBatches = useMemo(() => {
+    if (filter === 'all') return fixedBatches;
+    return fixedBatches.filter(batch => {
+      const isBatchSent = batch.every(e => sentStatus[e.email]);
+      if (filter === 'sent') return isBatchSent;
+      if (filter === 'pending') return !isBatchSent;
+      return true;
+    });
+  }, [fixedBatches, filter, sentStatus]);
+
+  // List of active pending batches for the "Open Batches" sequential trigger
+  const pendingBatches = useMemo(() => {
+    return fixedBatches.filter(batch => !batch.every(e => sentStatus[e.email]));
+  }, [fixedBatches, sentStatus]);
+
+  // Layer 2: Status Filter (re-runs when status changes, but only if filter is not 'all')
+  const statusFiltered = useMemo(() => {
+    if (filter === 'all') return searchFiltered;
     if (filter === 'pending') {
       return searchFiltered.filter(e => !sentStatus[e.email] && e.isValid);
     }
@@ -225,6 +426,36 @@ export function GeneratedEmails({
     return searchFiltered;
   }, [searchFiltered, filter, sentStatus]);
 
+  // Layer 3: Domain Filter (public vs personal/business)
+  const domainFiltered = useMemo(() => {
+    if (domainFilter === 'all') return statusFiltered;
+    return statusFiltered.filter(e => {
+      const domain = e.email.split('@')[1]?.toLowerCase();
+      if (!domain) return false;
+      const isPublic = PUBLIC_PROVIDERS.has(domain);
+      return domainFilter === 'public' ? isPublic : !isPublic;
+    });
+  }, [statusFiltered, domainFilter]);
+
+  // Layer 4: Sort
+  const filteredEmails = useMemo(() => {
+    if (sort === 'default') return domainFiltered;
+    const sorted = [...domainFiltered].sort((a, b) =>
+      a.email.localeCompare(b.email, undefined, { sensitivity: 'base' })
+    );
+    return sort === 'za' ? sorted.reverse() : sorted;
+  }, [domainFiltered, sort]);
+
+  // Domain counts for badges
+  const domainCounts = useMemo(() => {
+    let pub = 0, priv = 0;
+    for (const e of statusFiltered) {
+      const domain = e.email.split('@')[1]?.toLowerCase();
+      if (domain && PUBLIC_PROVIDERS.has(domain)) pub++; else priv++;
+    }
+    return { public: pub, personal: priv };
+  }, [statusFiltered]);
+
   const rowProps = useMemo<RowProps>(() => ({
     entries: filteredEmails,
     subject,
@@ -233,7 +464,12 @@ export function GeneratedEmails({
     userName,
     sentStatus,
     searchQuery,
-  }), [filteredEmails, subject, body, onSendClick, userName, sentStatus, searchQuery]);
+    cc,
+    bcc,
+    myInboxTo,
+    ccRoutingMode,
+    enableRandomization,
+  }), [filteredEmails, subject, body, onSendClick, userName, sentStatus, searchQuery, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization]);
 
   const filters: { key: FilterType; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -241,11 +477,18 @@ export function GeneratedEmails({
     { key: 'pending', label: 'Pending' },
   ];
 
+  // Cycle sort: default → az → za → default
+  const cycleSort = useCallback(() => {
+    setSort(prev => prev === 'default' ? 'az' : prev === 'az' ? 'za' : 'default');
+  }, []);
+
   // Export current filtered list as CSV
   const handleExport = useCallback(() => {
-    const csvContent = 'email,status\n' + filteredEmails.map(e =>
-      `${e.email},${sentStatus[e.email] ? 'sent' : 'pending'}`
-    ).join('\n');
+    const csvContent = 'email,status,domain_type\n' + filteredEmails.map(e => {
+      const domain = e.email.split('@')[1]?.toLowerCase();
+      const type = domain && PUBLIC_PROVIDERS.has(domain) ? 'public' : 'personal';
+      return `${e.email},${sentStatus[e.email] ? 'sent' : 'pending'},${type}`;
+    }).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -281,81 +524,259 @@ export function GeneratedEmails({
 
   return (
     <div className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-sm h-[600px] flex flex-col relative overflow-hidden">
-      <div className="flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <h2 className="text-base font-semibold">Generated Emails</h2>
-          <Badge variant="secondary" className="text-[10px] font-normal">
-            {filteredEmails.length}
-          </Badge>
-          {isOpeningBatch && batchTotal > 0 && (
-            <Badge variant="outline" className="text-[10px] animate-pulse border-primary/30 text-primary">
-              Sending {batchSent}/{batchTotal}...
+      {/* Header row */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center justify-between sm:justify-start gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold">Generated Emails</h2>
+            <Badge variant="secondary" className="text-[10px] font-normal">
+              {isBatchMode 
+                ? `${filteredBatches.length} ${filteredBatches.length === 1 ? 'Batch' : 'Batches'}` 
+                : `${filteredEmails.length} ${filteredEmails.length === 1 ? 'Email' : 'Emails'}`}
             </Badge>
+            {isOpeningBatch && batchTotal > 0 && (
+              <Badge variant="outline" className="text-[10px] animate-pulse border-primary/30 text-primary">
+                Sending {batchSent}/{batchTotal}...
+              </Badge>
+            )}
+            {isOpeningBccBatches && bccBatchTotal > 0 && (
+              <Badge variant="outline" className="text-[10px] animate-pulse border-primary/30 text-primary">
+                Opening {bccBatchTotal - bccBatchQueue.length}/{bccBatchTotal}...
+              </Badge>
+            )}
+          </div>
+          
+          {/* Sort toggle on Mobile top right for perfect compactness */}
+          {!isBatchMode && (
+            <Button
+              variant={sort !== 'default' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-6 text-[10px] px-2 sm:hidden border border-border/40"
+              onClick={cycleSort}
+              title={sort === 'default' ? 'Sort A→Z' : sort === 'az' ? 'Sort Z→A' : 'Default order'}
+            >
+              {sort === 'za' ? (
+                <ArrowDownZA className="h-3.5 w-3.5" />
+              ) : sort === 'az' ? (
+                <ArrowUpAZ className="h-3.5 w-3.5" />
+              ) : (
+                <ArrowUpAZ className="h-3.5 w-3.5 opacity-50" />
+              )}
+            </Button>
           )}
         </div>
-        <div className="flex gap-1 items-center flex-wrap">
-          {/* Export */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 text-[10px] sm:text-xs sm:h-7 text-muted-foreground hover:text-foreground px-2"
-            onClick={handleExport}
-            title="Export filtered list as CSV"
-          >
-            <Download className="h-3 w-3 mr-1" />
-            <span className="hidden sm:inline">Export</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 text-[10px] sm:text-xs sm:h-7 bg-primary/5 border-primary/20 text-primary hover:bg-primary/10 px-2 sm:px-3"
-            disabled={isOpeningBatch || emails.filter(e => !sentStatus[e.email]).length === 0}
-            onClick={() => {
-              const pending = emails.filter(e => !sentStatus[e.email] && e.isValid).slice(0, 5);
-              if (pending.length === 0) return;
-              setBatchTotal(pending.length);
-              setIsOpeningBatch(true);
-              const [first, ...rest] = pending;
-              setBatchQueue(rest);
-              triggerEmail(first);
-            }}
-          >
-            <RefreshCw className={`h-3 w-3 ${isOpeningBatch ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline ml-1.5">{isOpeningBatch ? `${batchSent}/${batchTotal}` : 'Open 5'}</span>
-          </Button>
-          {filters.map((f) => (
+
+        {/* Action Controls & Filters */}
+        <div className="flex flex-col sm:flex-row gap-2 items-center w-full sm:w-auto justify-start sm:justify-end">
+          
+          {/* Action Row: Mode & Export (Stretches on mobile, standard on desktop) */}
+          <div className="flex w-full sm:w-auto gap-2">
+            {/* BCC Batching Mode Toggle */}
             <Button
-              key={f.key}
-              variant={filter === f.key ? 'secondary' : 'ghost'}
+              variant={isBatchMode ? 'secondary' : 'ghost'}
               size="sm"
-              className={`h-6 sm:h-7 text-[10px] sm:text-xs px-2 sm:px-3 ${filter === f.key ? 'font-medium' : 'text-muted-foreground'}`}
-              onClick={() => onFilterChange(f.key)}
+              className="flex-1 sm:flex-none h-8 sm:h-7 text-[10px] sm:text-xs px-2.5 border border-border/40 sm:border-transparent"
+              onClick={() => setIsBatchMode(prev => !prev)}
+              title="Toggle between individual and BCC batch sending modes"
             >
-              {f.label}
+              <Layers className="h-3.5 w-3.5 mr-1 text-primary shrink-0" />
+              <span className="text-[10px] sm:text-xs font-semibold">{isBatchMode ? 'Individual Mode' : 'BCC Batches'}</span>
             </Button>
-          ))}
+
+            {/* Export */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="flex-1 sm:flex-none h-8 sm:h-7 text-[10px] sm:text-xs text-muted-foreground hover:text-foreground px-2.5 border border-border/40 sm:border-transparent"
+              onClick={handleExport}
+              title="Export filtered list as CSV"
+            >
+              <Download className="h-3.5 w-3.5 mr-1 shrink-0" />
+              <span className="text-[10px] sm:text-xs font-semibold">Export CSV</span>
+            </Button>
+
+            {/* Sort toggle (Desktop only, rendered inline) */}
+            {!isBatchMode && (
+              <Button
+                variant={sort !== 'default' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="hidden sm:flex h-7 px-2"
+                onClick={cycleSort}
+                title={sort === 'default' ? 'Sort A→Z' : sort === 'az' ? 'Sort Z→A' : 'Default order'}
+              >
+                {sort === 'za' ? (
+                  <ArrowDownZA className="h-3.5 w-3.5" />
+                ) : sort === 'az' ? (
+                  <ArrowUpAZ className="h-3.5 w-3.5" />
+                ) : (
+                  <ArrowUpAZ className="h-3.5 w-3.5 opacity-50" />
+                )}
+              </Button>
+            )}
+          </div>
+
+          {/* Segmented Filter Control Bar (Stretches on mobile, standard on desktop) */}
+          <div className="flex w-full sm:w-auto bg-muted/40 sm:bg-transparent p-1 sm:p-0 rounded-xl sm:rounded-none gap-1 border border-border/20 sm:border-none">
+            {filters.map((f) => (
+              <Button
+                key={f.key}
+                variant={filter === f.key ? 'secondary' : 'ghost'}
+                size="sm"
+                className={`flex-1 sm:flex-none h-7 sm:h-7 text-[10px] sm:text-xs px-2.5 sm:px-3 cursor-pointer rounded-lg sm:rounded-none ${
+                  filter === f.key 
+                    ? 'font-semibold text-primary bg-primary/10 sm:bg-secondary' 
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                onClick={() => onFilterChange(f.key)}
+              >
+                {f.label}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
-      <div className="flex-1 relative min-h-0 w-full overflow-hidden">
-        {filteredEmails.length > 0 ? (
-          <List
-            rowCount={filteredEmails.length}
-            rowHeight={36}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            rowComponent={Row as any}
-            rowProps={rowProps}
-            className="scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/30 h-full"
-            overscanCount={5}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            {...({ itemKey: (index: number) => filteredEmails[index]?.id || index } as any)}
-          />
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-            <Mail className="h-10 w-10 mb-3 opacity-20" />
-            <p className="text-xs">No recipients match your filter</p>
+
+      {/* Domain filter row */}
+      {!isBatchMode && (
+        <div className="flex items-center gap-1.5 shrink-0">
+        <span className="text-[10px] text-muted-foreground/70 mr-1">Domain:</span>
+        <Button
+          variant={domainFilter === 'all' ? 'secondary' : 'ghost'}
+          size="sm"
+          className={`h-5 text-[9px] sm:text-[10px] px-2 gap-1 ${domainFilter === 'all' ? 'font-medium' : 'text-muted-foreground'}`}
+          onClick={() => setDomainFilter('all')}
+        >
+          <List className="h-2.5 w-2.5" />
+          All
+        </Button>
+        <Button
+          variant={domainFilter === 'public' ? 'secondary' : 'ghost'}
+          size="sm"
+          className={`h-5 text-[9px] sm:text-[10px] px-2 gap-1 ${domainFilter === 'public' ? 'font-medium' : 'text-muted-foreground'}`}
+          onClick={() => setDomainFilter('public')}
+        >
+          <Globe className="h-2.5 w-2.5 text-blue-400" />
+          Public
+          <Badge variant="outline" className="text-[7px] h-3 px-1 ml-0.5 font-normal">{domainCounts.public}</Badge>
+        </Button>
+        <Button
+          variant={domainFilter === 'personal' ? 'secondary' : 'ghost'}
+          size="sm"
+          className={`h-5 text-[9px] sm:text-[10px] px-2 gap-1 ${domainFilter === 'personal' ? 'font-medium' : 'text-muted-foreground'}`}
+          onClick={() => setDomainFilter('personal')}
+        >
+          <Building2 className="h-2.5 w-2.5 text-emerald-400" />
+          Personal
+          <Badge variant="outline" className="text-[7px] h-3 px-1 ml-0.5 font-normal">{domainCounts.personal}</Badge>
+        </Button>
+        </div>
+      )}
+
+      {/* List/Grid Container */}
+      {isBatchMode ? (
+        <div className="flex-1 overflow-y-auto min-h-0 w-full pr-1 space-y-2.5 scrollbar-thin">
+          {/* Info panel */}
+          <div className="bg-primary/[0.03] rounded-lg border border-primary/10 p-3 pt-2.5 pb-2.5 space-y-1 text-xs text-muted-foreground leading-normal">
+            <p className="font-semibold text-primary flex items-center gap-1.5">
+              <span>💡 BCC Batch Sending Mode</span>
+              <Badge variant="secondary" className="text-[8px] h-3.5 px-1 font-normal bg-primary/10 text-primary border-none">
+                {bccBatchSize} per batch
+              </Badge>
+            </p>
+            <p>
+              Bundle multiple recipients in BCC to send in bulk. If a <strong>"To (My Inbox)"</strong> address is specified in settings, it will be used as the primary recipient with all targets in BCC. Otherwise, the primary recipient (<strong>To</strong>) is left blank and all targets are routed to the <strong>BCC</strong> field.
+            </p>
+            <p className="text-[10px] text-amber-500/90 font-medium">
+              ⚠️ Personalization variables ({`{name}`}, {`{store}`}) use generic fallbacks like "Team" in BCC.
+            </p>
           </div>
-        )}
-      </div>
+
+          {filteredBatches.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-4">
+              {filteredBatches.map((batch) => {
+                const originalIndex = fixedBatches.indexOf(batch);
+                const batchNum = originalIndex !== -1 ? originalIndex + 1 : 1;
+                const hasSent = batch.every(e => sentStatus[e.email]);
+                return (
+                  <div
+                    key={batchNum}
+                    className={`border border-border/85 rounded-lg p-3.5 space-y-2.5 transition-all ${
+                      hasSent 
+                        ? 'bg-muted/10 opacity-70 border-muted' 
+                        : 'bg-card hover:border-primary/30 hover:shadow-sm'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-xs text-foreground">
+                        Batch {batchNum}
+                      </span>
+                      <Badge variant={hasSent ? 'secondary' : 'outline'} className="text-[9px] h-4.5 px-1 border-primary/20 text-primary bg-primary/5">
+                        {batch.length} Emails
+                      </Badge>
+                    </div>
+                    <div className="max-h-24 overflow-y-auto text-[10px] text-muted-foreground/95 bg-muted/20 p-2 rounded border border-border/40 font-mono space-y-0.5 scrollbar-none">
+                      {batch.map((e, idx) => (
+                        <div key={idx} className="truncate">
+                          {idx + 1}. {e.email}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-1.5">
+                      <Button
+                        size="sm"
+                        className="flex-1 text-xs h-7.5 cursor-pointer"
+                        variant={hasSent ? 'ghost' : 'outline'}
+                        disabled={hasSent}
+                        onClick={() => triggerBccBatch(batch)}
+                      >
+                        <Send className="h-3 w-3 mr-1.5" />
+                        {hasSent ? 'Batch Sent' : `Send Batch ${batchNum}`}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7.5 w-7.5 p-0 shrink-0 border border-border/40 hover:bg-muted cursor-pointer"
+                        title="Copy BCC recipient list to clipboard"
+                        onClick={() => {
+                          const emailsStr = batch.map(e => e.email).join(',');
+                          navigator.clipboard.writeText(emailsStr);
+                          toast({ title: 'Copied to clipboard', description: `Batch ${batchNum} recipients copied.` });
+                        }}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+              <Mail className="h-10 w-10 mb-3 opacity-20" />
+              <p className="text-xs">No batches match your active filter</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex-1 relative min-h-0 w-full overflow-hidden">
+          {filteredEmails.length > 0 ? (
+            <VList
+              rowCount={filteredEmails.length}
+              rowHeight={36}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              rowComponent={Row as any}
+              rowProps={rowProps}
+              className="scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/30 h-full"
+              overscanCount={5}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+              <Mail className="h-10 w-10 mb-3 opacity-20" />
+              <p className="text-xs">No recipients match your filter</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

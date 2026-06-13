@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -6,7 +7,7 @@ interface SearchBarProps {
   onChange: (value: string) => void;
 }
 
-export function SearchBar({ value, onChange }: SearchBarProps) {
+export const SearchBar = memo(function SearchBar({ value, onChange }: SearchBarProps) {
   return (
     <div className="glass-card flex items-center gap-2 rounded-2xl p-2 transition-all duration-300 hover:shadow-lg hover:shadow-primary/5">
       <Search className="ml-3 h-5 w-5 text-primary/60" />
@@ -19,4 +20,4 @@ export function SearchBar({ value, onChange }: SearchBarProps) {
       />
     </div>
   );
-}
+});

@@ -1,0 +1,6 @@
+node_modules
+mailflow.db
+.env
+.tmp/
+*.txt
+*.log

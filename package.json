@@ -1,0 +1,27 @@
+{
+  "name": "mailflow-peakconix-root",
+  "version": "1.0.0",
+  "description": "Unified Bulk Email Outreach Platform",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "frontend:dev": "cd gfg-main && npm run dev",
+    "frontend:build": "cd gfg-main && npm run build",
+    "backend:dev": "node server.js",
+    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\""
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "sql.js": "^1.10.3",
+    "googleapis": "^140.0.0",
+    "node-cron": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "multer": "^1.4.5-lts.1",
+    "csv-parser": "^3.0.0",
+    "nodemailer": "^6.9.13"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

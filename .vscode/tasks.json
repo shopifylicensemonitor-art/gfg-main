@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "npm",
+			"script": "build:dev",
+			"path": "gfg-main",
+			"group": "build",
+			"problemMatcher": [],
+			"label": "npm: build:dev - gfg-main",
+			"detail": "vite build --mode development"
+		}
+	]
+}

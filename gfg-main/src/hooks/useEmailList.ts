@@ -1,11 +1,14 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { toast } from '@/hooks/use-toast';
+import { parseEmailsText } from '@/lib/emailParser';
 
 export interface EmailEntry {
   id: string;
   sequenceId: number;
   email: string;
+  name?: string;
   isValid: boolean;
+  fields?: Record<string, string>;
 }
 
 const STORAGE_KEY = 'bulk-email-sent-status';
@@ -19,15 +22,82 @@ export const extractEmailsFromText = (text: string): string[] => {
   return Array.from(new Set(matches.map(email => email.trim().toLowerCase())));
 };
 
+// ── Compact LocalStorage Serialization Helpers ─────────────────────
+function serializeEmails(entries: EmailEntry[]): string {
+  return entries.map(e => {
+    const fieldsStr = e.fields ? JSON.stringify(e.fields) : '';
+    return `${e.sequenceId}|${e.email}|${e.name || ''}|${e.isValid ? 1 : 0}|${fieldsStr}`;
+  }).join('\n');
+}
+
+function deserializeEmails(stored: string): EmailEntry[] {
+  if (!stored) return [];
+  if (stored.startsWith('[')) {
+    try {
+      return JSON.parse(stored) as EmailEntry[];
+    } catch {
+      // Fall through to compact parsing
+    }
+  }
+  const lines = stored.split('\n');
+  const entries: EmailEntry[] = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const parts = line.split('|');
+    if (parts.length >= 2) {
+      const sequenceId = parseInt(parts[0], 10) || 1;
+      const email = parts[1];
+      const name = parts[2] || undefined;
+      const isValid = parts[3] === '1';
+      let fields: Record<string, string> | undefined = undefined;
+      if (parts[4]) {
+        try {
+          fields = JSON.parse(parts[4]);
+        } catch {
+          // Ignore parsing issues
+        }
+      }
+      entries.push({
+        id: String(sequenceId),
+        sequenceId,
+        email,
+        name,
+        isValid,
+        fields
+      });
+    }
+  }
+  return entries;
+}
+
+function serializeSentStatus(status: Record<string, boolean>): string {
+  return Object.keys(status).filter(k => status[k]).join(',');
+}
+
+function deserializeSentStatus(stored: string): Record<string, boolean> {
+  if (!stored) return {};
+  if (stored.startsWith('{')) {
+    try {
+      return JSON.parse(stored);
+    } catch (_e) {
+      // Fall through to compact parsing
+    }
+  }
+  const status: Record<string, boolean> = {};
+  const emails = stored.split(',');
+  for (const email of emails) {
+    if (email.trim()) {
+      status[email] = true;
+    }
+  }
+  return status;
+}
+
 export function useEmailList() {
   const [emails, setEmails] = useState<EmailEntry[]>(() => {
     const storedEmails = localStorage.getItem(EMAILS_STORAGE_KEY);
     if (storedEmails) {
-      try {
-        return JSON.parse(storedEmails) as EmailEntry[];
-      } catch {
-        localStorage.removeItem(EMAILS_STORAGE_KEY);
-      }
+      return deserializeEmails(storedEmails);
     }
     return [];
   });
@@ -46,29 +116,10 @@ export function useEmailList() {
   const [sentStatus, setSentStatus] = useState<Record<string, boolean>>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
-      }
+      return deserializeSentStatus(stored);
     }
     return {};
   });
-
-  // Worker reference
-  const workerRef = useRef<Worker | null>(null);
-
-  useEffect(() => {
-    try {
-      workerRef.current = new Worker(
-        new URL('../workers/email-processor.worker.ts', import.meta.url),
-        { type: 'module' }
-      );
-    } catch (err) {
-      console.error('Failed to initialize worker:', err);
-    }
-    return () => { workerRef.current?.terminate(); };
-  }, []);
 
   // Persist cumulativeSent
   useEffect(() => {
@@ -84,7 +135,7 @@ export function useEmailList() {
     const timer = setTimeout(() => {
       try {
         if (emails.length > 0) {
-          localStorage.setItem(EMAILS_STORAGE_KEY, JSON.stringify(emails));
+          localStorage.setItem(EMAILS_STORAGE_KEY, serializeEmails(emails));
         } else {
           localStorage.removeItem(EMAILS_STORAGE_KEY);
         }
@@ -100,7 +151,7 @@ export function useEmailList() {
     const timer = setTimeout(() => {
       try {
         if (Object.keys(sentStatus).length > 0) {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(sentStatus));
+          localStorage.setItem(STORAGE_KEY, serializeSentStatus(sentStatus));
         }
       } catch (e) {
         console.warn('Failed to persist sentStatus (quota likely exceeded):', e);
@@ -110,56 +161,46 @@ export function useEmailList() {
   }, [sentStatus]);
 
   const replaceEmails = useCallback((text: string, onComplete?: (emails: EmailEntry[]) => void, isCSV: boolean = false) => {
-    if (!workerRef.current) {
-      const rawEmails = extractEmailsFromText(text);
-      const now = Date.now();
-      const newEntries: EmailEntry[] = rawEmails.map((email, i) => ({
-        id: `${email}-${now}-${Math.random()}`,
-        sequenceId: i + 1,
-        email,
+    const parsed = parseEmailsText(text, isCSV);
+    let seq = 1;
+    const newEntries: EmailEntry[] = parsed.map(p => {
+      const currentSeq = seq++;
+      return {
+        id: String(currentSeq),
+        sequenceId: currentSeq,
+        email: p.email,
+        name: p.name,
         isValid: true,
-      }));
-      setEmails(newEntries);
-      setNextSequenceId(newEntries.length + 1);
-      if (onComplete) onComplete(newEntries);
-      return;
-    }
+      };
+    });
+    setEmails(newEntries);
+    setNextSequenceId(newEntries.length + 1);
+    if (onComplete) onComplete(newEntries);
+  }, []);
 
-    workerRef.current.onmessage = (e) => {
-      const { emails: newEmails, nextSequenceId: newSeq } = e.data;
-      setEmails(newEmails);
-      setNextSequenceId(newSeq);
-      if (onComplete) onComplete(newEmails);
-    };
-
-    workerRef.current.postMessage({ text, nextSequenceId: 1, sentStatus, isCSV });
-  }, [sentStatus]);
+  const replaceEmailEntries = useCallback((entries: EmailEntry[], onComplete?: (emails: EmailEntry[]) => void) => {
+    setEmails(entries);
+    setNextSequenceId(entries.length + 1);
+    if (onComplete) onComplete(entries);
+  }, []);
 
   const addEmailsFromList = useCallback((emailList: string[], onComplete?: (emails: EmailEntry[]) => void) => {
-    if (!workerRef.current) {
-      const rawEmails = extractEmailsFromText(emailList.join('\n'));
-      const now = Date.now();
-      const newEntries: EmailEntry[] = rawEmails.map((email, i) => ({
-        id: `${email}-${now}-${Math.random()}`,
-        sequenceId: nextSequenceId + i,
-        email,
+    const parsed = parseEmailsText(emailList.join('\n'));
+    let seq = nextSequenceId;
+    const newEntries: EmailEntry[] = parsed.map(p => {
+      const currentSeq = seq++;
+      return {
+        id: String(currentSeq),
+        sequenceId: currentSeq,
+        email: p.email,
+        name: p.name,
         isValid: true,
-      }));
-      setEmails(prev => [...prev, ...newEntries]);
-      setNextSequenceId(prev => prev + newEntries.length);
-      if (onComplete) onComplete(newEntries);
-      return;
-    }
-
-    workerRef.current.onmessage = (e) => {
-      const { emails: newEmails, nextSequenceId: newSeq } = e.data;
-      setEmails(prev => [...prev, ...newEmails]);
-      setNextSequenceId(newSeq);
-      if (onComplete) onComplete(newEmails);
-    };
-
-    workerRef.current.postMessage({ text: emailList.join('\n'), nextSequenceId, sentStatus });
-  }, [sentStatus, nextSequenceId]);
+      };
+    });
+    setEmails(prev => [...prev, ...newEntries]);
+    setNextSequenceId(seq);
+    if (onComplete) onComplete(newEntries);
+  }, [nextSequenceId]);
 
   const markAsSent = useCallback((email: string) => {
     setSentStatus((prev) => {
@@ -168,6 +209,24 @@ export function useEmailList() {
       next[email] = true;
       setCumulativeSent(c => c + 1);
       return next;
+    });
+  }, []);
+
+  const markBatchAsSent = useCallback((emailsList: string[]) => {
+    setSentStatus((prev) => {
+      const next = Object.assign({}, prev);
+      let count = 0;
+      for (const email of emailsList) {
+        if (!next[email]) {
+          next[email] = true;
+          count++;
+        }
+      }
+      if (count > 0) {
+        setCumulativeSent(c => c + count);
+        return next;
+      }
+      return prev;
     });
   }, []);
 
@@ -211,8 +270,8 @@ export function useEmailList() {
   }, []);
 
   return {
-    emails, sentCount, totalCount, addEmailsFromList, replaceEmails,
-    markAsSent, clearAllEmails, resetSentStatus, setSentStatus,
+    emails, sentCount, totalCount, addEmailsFromList, replaceEmails, replaceEmailEntries,
+    markAsSent, markBatchAsSent, clearAllEmails, resetSentStatus, setSentStatus,
     sentStatus, cumulativeGenerated, cumulativeSent, filterList
   };
 }

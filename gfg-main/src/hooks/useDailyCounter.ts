@@ -6,13 +6,12 @@ interface DailyStats {
   [date: string]: number;
 }
 
+function formatDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function useDailyCounter() {
   const [stats, setStats] = useState<DailyStats>({});
-
-  const getTodayDate = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  };
 
   // Load + Sync
   useEffect(() => {
@@ -20,10 +19,9 @@ export function useDailyCounter() {
       if (!json) return;
       try {
         const parsed = JSON.parse(json);
-        // Prune entries older than 30 days
-        const now = new Date();
+        // Keep 67 days of data (30 days for monthly view + 30 days for last month + 7 day buffer)
         const cutoff = new Date();
-        cutoff.setDate(now.getDate() - 30);
+        cutoff.setDate(cutoff.getDate() - 67);
 
         const cleaned: DailyStats = {};
         Object.entries(parsed).forEach(([date, count]) => {
@@ -47,7 +45,7 @@ export function useDailyCounter() {
   }, []);
 
   const increment = useCallback((amount: number = 1) => {
-    const today = getTodayDate();
+    const today = formatDate(new Date());
     setStats(prev => {
       const newCount = (prev[today] || 0) + amount;
       const updated = { ...prev, [today]: newCount };
@@ -56,12 +54,16 @@ export function useDailyCounter() {
     });
   }, []);
 
+  // Today's count
+  const todayCount = stats[formatDate(new Date())] || 0;
+
+  // Last 7 days for bar chart
   const weeklyStats = useMemo(() => {
     const days = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const dateStr = formatDate(d);
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
       days.push({
         day: dayName,
@@ -72,9 +74,67 @@ export function useDailyCounter() {
     return days;
   }, [stats]);
 
+  // This week total (Mon-Sun or last 7 days)
+  const weekTotal = useMemo(() => {
+    return weeklyStats.reduce((sum, d) => sum + d.count, 0);
+  }, [weeklyStats]);
+
+  // Last 30 days for monthly donut
+  const monthlyStats = useMemo(() => {
+    const days = [];
+    let total = 0;
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = formatDate(d);
+      const count = stats[dateStr] || 0;
+      total += count;
+      days.push({
+        label: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+        date: dateStr,
+        count
+      });
+    }
+    return { days, total };
+  }, [stats]);
+
+  // Yesterday's count
+  const yesterdayCount = useMemo(() => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    return stats[formatDate(yesterday)] || 0;
+  }, [stats]);
+
+  // Last week's count (7 days prior to the last 7 days, i.e., days -13 to -7)
+  const lastWeekCount = useMemo(() => {
+    let total = 0;
+    for (let i = 13; i >= 7; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      total += stats[formatDate(d)] || 0;
+    }
+    return total;
+  }, [stats]);
+
+  // Last month's count (30 days prior to the last 30 days, i.e., days -59 to -30)
+  const lastMonthCount = useMemo(() => {
+    let total = 0;
+    for (let i = 59; i >= 30; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      total += stats[formatDate(d)] || 0;
+    }
+    return total;
+  }, [stats]);
+
   return {
-    count: stats[getTodayDate()] || 0,
+    count: todayCount,
     increment,
-    weeklyStats
+    weeklyStats,
+    weekTotal,
+    monthlyStats,
+    yesterdayCount,
+    lastWeekCount,
+    lastMonthCount
   };
 }

@@ -28,15 +28,17 @@ export function use24hTracker() {
         return () => window.removeEventListener('storage', onStorage);
     }, []);
 
-    const trackClick = useCallback(() => {
+    const trackClick = useCallback((amount: number = 1) => {
         const now = Date.now();
         const cutoff = now - DAY_MS;
         setTimestamps(prev => {
-            const updated = [...prev.filter(t => t > cutoff), now];
+            const fresh = prev.filter(t => t > cutoff);
+            const additions = Array(amount).fill(now);
+            const updated = [...fresh, ...additions];
             localStorage.setItem(TRACKER_24H_KEY, JSON.stringify(updated));
             return updated;
         });
     }, []);
 
-    return { count: timestamps.length, trackClick };
+    return { count: timestamps.length, trackClick, timestamps };
 }
