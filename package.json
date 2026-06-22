@@ -8,7 +8,8 @@
     "frontend:dev": "cd gfg-main && npm run dev",
     "frontend:build": "cd gfg-main && npm run build",
     "backend:dev": "node server.js",
-    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\""
+    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
+    "postinstall": "npm install --prefix gfg-main"
   },
   "dependencies": {
     "cors": "^2.8.5",
