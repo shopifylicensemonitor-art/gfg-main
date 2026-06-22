@@ -33,7 +33,8 @@ function getOAuth2Client() {
  */
 async function ensureFreshToken(account) {
   const now = Date.now();
-  if (account.token_expiry && now < account.token_expiry - 60000) {
+  const expiry = account.token_expiry ? Number(account.token_expiry) : 0;
+  if (expiry && now < expiry - 60000) {
     return account.access_token; // Still valid
   }
 
@@ -42,7 +43,7 @@ async function ensureFreshToken(account) {
   const { credentials } = await oauth2.refreshAccessToken();
 
   const db = await getDb();
-  db.prepare(`
+  await db.prepare(`
     UPDATE accounts
     SET access_token  = ?,
         token_expiry  = ?
@@ -75,8 +76,8 @@ function createSmtpTransport(account) {
 router.get('/', async (_req, res) => {
   try {
     const db = await getDb();
-    const accounts = db.prepare(`
-      SELECT id, email, status, daily_sent, last_reset, display_name,
+    const accounts = await db.prepare(`
+      SELECT id, email, status, daily_sent, daily_limit, last_reset, display_name,
              type, smtp_host, smtp_port, smtp_secure, created_at
       FROM accounts
     `).all();
@@ -120,10 +121,10 @@ router.get('/callback', async (req, res) => {
     const email = data.email;
 
     const db = await getDb();
-    const existing = db.prepare('SELECT id FROM accounts WHERE email = ?').get(email);
+    const existing = await db.prepare('SELECT id FROM accounts WHERE email = ?').get(email);
 
     if (existing) {
-      db.prepare(`
+      await db.prepare(`
         UPDATE accounts
         SET access_token  = ?,
             refresh_token = COALESCE(?, refresh_token),
@@ -133,7 +134,7 @@ router.get('/callback', async (req, res) => {
         WHERE email = ?
       `).run(tokens.access_token, tokens.refresh_token, tokens.expiry_date, email);
     } else {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO accounts (email, access_token, refresh_token, token_expiry, type)
         VALUES (?, ?, ?, ?, 'oauth')
       `).run(email, tokens.access_token, tokens.refresh_token, tokens.expiry_date);
@@ -142,8 +143,9 @@ router.get('/callback', async (req, res) => {
     // Redirect back to the frontend dashboard
     res.redirect('/?account_added=' + encodeURIComponent(email));
   } catch (err) {
-    console.error('OAuth callback error:', err);
-    res.status(500).json({ error: err.message });
+    const logger = require('../logger');
+    logger.error({ err: err.message }, 'OAuth callback error');
+    res.redirect('/?account_error=' + encodeURIComponent(err.message));
   }
 });
 
@@ -167,17 +169,17 @@ router.post('/smtp', async (req, res) => {
     await transport.verify();
 
     const db = await getDb();
-    const existing = db.prepare('SELECT id FROM accounts WHERE email = ?').get(email);
+    const existing = await db.prepare('SELECT id FROM accounts WHERE email = ?').get(email);
 
     if (existing) {
-      db.prepare(`
+      await db.prepare(`
         UPDATE accounts
         SET type = 'smtp', smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?,
             smtp_secure = ?, display_name = COALESCE(?, display_name), status = 'active'
         WHERE email = ?
       `).run(smtp_host, smtp_port || 587, smtp_user, smtp_pass, smtp_secure ? 1 : 0, display_name || '', email);
     } else {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO accounts (email, type, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, display_name)
         VALUES (?, 'smtp', ?, ?, ?, ?, ?, ?)
       `).run(email, smtp_host, smtp_port || 587, smtp_user, smtp_pass, smtp_secure ? 1 : 0, display_name || '');
@@ -193,7 +195,7 @@ router.post('/smtp', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const db = await getDb();
-    db.prepare('DELETE FROM accounts WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM accounts WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -204,7 +206,7 @@ router.delete('/:id', async (req, res) => {
 router.post('/:id/pause', async (req, res) => {
   try {
     const db = await getDb();
-    db.prepare("UPDATE accounts SET status = 'paused' WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE accounts SET status = 'paused' WHERE id = ?").run(req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -215,7 +217,7 @@ router.post('/:id/pause', async (req, res) => {
 router.post('/:id/resume', async (req, res) => {
   try {
     const db = await getDb();
-    db.prepare("UPDATE accounts SET status = 'active' WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE accounts SET status = 'active' WHERE id = ?").run(req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -226,7 +228,7 @@ router.post('/:id/resume', async (req, res) => {
 router.post('/:id/reset', async (req, res) => {
   try {
     const db = await getDb();
-    db.prepare("UPDATE accounts SET daily_sent = 0, last_reset = datetime('now') WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE accounts SET daily_sent = 0, last_reset = datetime('now') WHERE id = ?").run(req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -238,7 +240,7 @@ router.put('/:id/display-name', async (req, res) => {
   const { display_name } = req.body;
   try {
     const db = await getDb();
-    db.prepare("UPDATE accounts SET display_name = ? WHERE id = ?").run(display_name || '', req.params.id);
+    await db.prepare("UPDATE accounts SET display_name = ? WHERE id = ?").run(display_name || '', req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -252,7 +254,7 @@ router.post('/:id/test', async (req, res) => {
 
   try {
     const db = await getDb();
-    const account = db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id);
+    const account = await db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id);
     if (!account) return res.status(404).json({ error: 'Account not found.' });
 
     if (account.type === 'smtp') {
@@ -263,8 +265,8 @@ router.post('/:id/test', async (req, res) => {
           ? `"${account.display_name}" <${account.email}>`
           : account.email,
         to,
-        subject: 'MailFlow Test',
-        html: '<p>This is a test email from MailFlow via your custom SMTP server.</p>',
+        subject: 'Peak Xender Test',
+        html: '<p>This is a test email from Peak Xender via your custom SMTP server.</p>',
       });
     } else {
       // Send via Gmail API (OAuth)
@@ -273,7 +275,7 @@ router.post('/:id/test', async (req, res) => {
       oauth2.setCredentials({ access_token: accessToken });
 
       const gmail = google.gmail({ version: 'v1', auth: oauth2 });
-      const raw = makeRawEmail(account.email, to, 'MailFlow Test', 'This is a test email from MailFlow.');
+      const raw = makeRawEmail(account.email, to, 'Peak Xender Test', 'This is a test email from Peak Xender.');
       await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
     }
 
@@ -283,18 +285,22 @@ router.post('/:id/test', async (req, res) => {
   }
 });
 
-/** Build a base64url-encoded RFC 2822 message. */
-function makeRawEmail(from, to, subject, body) {
-  const msg = [
+/** Build a base64url-encoded RFC 2822 message with optional extra headers. */
+function makeRawEmail(from, to, subject, body, extraHeaders = {}) {
+  const headerLines = [
     `From: ${from}`,
     `To: ${to}`,
     `Subject: ${subject}`,
     'MIME-Version: 1.0',
     'Content-Type: text/html; charset=utf-8',
-    '',
-    body,
-  ].join('\r\n');
+  ];
 
+  // Append any extra headers (e.g., List-Unsubscribe)
+  for (const [key, value] of Object.entries(extraHeaders)) {
+    headerLines.push(`${key}: ${value}`);
+  }
+
+  const msg = [...headerLines, '', body].join('\r\n');
   return Buffer.from(msg).toString('base64url');
 }
 

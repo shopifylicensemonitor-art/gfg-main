@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Send, Users, Flame, Layout, Inbox,
   BarChart3, Settings, History, FileText, HelpCircle,
   Shield, Scale, Building2, Mail, ChevronLeft, ChevronRight, X,
-  Home, Zap
+  Home, Zap, RefreshCw
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -16,8 +16,9 @@ interface SidebarProps {
 }
 
 const mainNavItems = [
+  { path: '/send', label: 'Direct Send', icon: Send },
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/campaigns', label: 'Campaigns', icon: Send },
+  { path: '/campaigns', label: 'Campaigns', icon: RefreshCw },
   { path: '/contacts', label: 'Prospects', icon: Users },
   { path: '/accounts', label: 'Warm-up', icon: Flame },
   { path: '/templates', label: 'Templates', icon: Layout },
@@ -71,13 +72,13 @@ export const Sidebar = memo(function Sidebar({ isOpen, onClose, collapsed, onTog
       {/* Brand Logo */}
       <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-4 py-5 border-b border-sidebar-border`}>
         <div className="h-9 w-9 rounded-lg overflow-hidden bg-card shrink-0 flex items-center justify-center">
-          <img src="/logo-light.jpg" alt="Peakconix" className="h-full w-full object-contain dark:hidden" />
-          <img src="/logo-dark.jpg" alt="Peakconix" className="h-full w-full object-contain hidden dark:block" />
+          <img src="/logo-light.jpg" alt="Peak Xender" className="h-full w-full object-contain dark:hidden" />
+          <img src="/logo-dark.jpg" alt="Peak Xender" className="h-full w-full object-contain hidden dark:block" />
         </div>
         {!collapsed && (
           <div className="flex flex-col -space-y-0.5 min-w-0">
-            <span className="text-base font-extrabold tracking-tight text-foreground">Peakconix</span>
-            <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-[0.2em]">Sender Console</span>
+            <span className="text-base font-extrabold tracking-tight text-foreground">Peak Xender</span>
+            <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-[0.2em]">Outreach Console</span>
           </div>
         )}
       </div>

@@ -20,7 +20,7 @@ export const Header = memo(function Header({ canInstall, onInstall }: HeaderProp
   const { count: dailyCount } = useDailyCounter();
 
   const navItems = [
-    { path: '/', label: 'Home', icon: LayoutGrid },
+    { path: '/send', label: 'Home', icon: LayoutGrid },
     { path: '/dashboard', label: 'Dashboard', icon: BarChart3 },
     { path: '/accounts', label: 'Accounts', icon: Mail },
     { path: '/campaigns', label: 'Campaigns', icon: Send },
@@ -36,13 +36,13 @@ export const Header = memo(function Header({ canInstall, onInstall }: HeaderProp
   ];
 
   const handleNavigateToSection = (sectionId: string) => {
-    if (location.pathname === '/') {
+    if (location.pathname === '/send') {
       const el = document.getElementById(sectionId);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     } else {
-      navigate(`/?scroll=${sectionId}`);
+      navigate(`/send?scroll=${sectionId}`);
     }
   };
 
@@ -53,17 +53,17 @@ export const Header = memo(function Header({ canInstall, onInstall }: HeaderProp
           <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center shrink-0 rounded-lg overflow-hidden bg-card">
             <img 
               src="/logo-light.jpg" 
-              alt="Peakconix Logo" 
+              alt="Peak Xender Logo" 
               className="h-full w-full object-contain dark:hidden" 
             />
             <img 
               src="/logo-dark.jpg" 
-              alt="Peakconix Logo" 
+              alt="Peak Xender Logo" 
               className="h-full w-full object-contain hidden dark:block" 
             />
           </div>
           <div className="flex flex-col -space-y-1">
-            <span className="text-lg font-bold tracking-tight gradient-text">Peakconix</span>
+            <span className="text-lg font-bold tracking-tight gradient-text">Peak Xender</span>
             <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-widest">Sender</span>
           </div>
         </div>
@@ -109,17 +109,17 @@ export const Header = memo(function Header({ canInstall, onInstall }: HeaderProp
                   <div className="flex h-9 w-9 items-center justify-center shrink-0 rounded-lg overflow-hidden bg-card">
                     <img 
                       src="/logo-light.jpg" 
-                      alt="Peakconix Logo" 
+                      alt="Peak Xender Logo" 
                       className="h-full w-full object-contain dark:hidden" 
                     />
                     <img 
                       src="/logo-dark.jpg" 
-                      alt="Peakconix Logo" 
+                      alt="Peak Xender Logo" 
                       className="h-full w-full object-contain hidden dark:block" 
                     />
                   </div>
                   <div className="flex flex-col -space-y-1">
-                    <span className="text-base font-bold tracking-tight gradient-text">Peakconix Console</span>
+                    <span className="text-base font-bold tracking-tight gradient-text">Peak Xender Console</span>
                     <span className="text-[8px] font-semibold text-muted-foreground uppercase tracking-widest">Outreach Console Menu</span>
                   </div>
                 </div>
@@ -131,8 +131,8 @@ export const Header = memo(function Header({ canInstall, onInstall }: HeaderProp
                     <button
                       onClick={() => {
                         setIsOpen(false);
-                        if (location.pathname !== '/') {
-                          navigate('/');
+                        if (location.pathname !== '/send') {
+                          navigate('/send');
                         } else {
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         }
@@ -310,7 +310,7 @@ export const Header = memo(function Header({ canInstall, onInstall }: HeaderProp
                 </div>
 
                 <div className="text-[9px] text-muted-foreground text-center font-mono pt-1">
-                  Peakconix Sender v3.4.0 • Local Client-Side Exec
+                  Peak Xender v3.4.0 • Local Client-Side Exec
                 </div>
               </div>
             </DialogContent>

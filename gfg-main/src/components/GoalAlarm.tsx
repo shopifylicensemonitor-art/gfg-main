@@ -15,23 +15,33 @@ function playSound(type: 'goal' | 'alarm' | 'warning' | 'followup', tone: 'class
   if (!ACtx) return;
   try {
     const ctx = new ACtx();
+    const startTime = ctx.currentTime;
     
     // Celebration Goal (always runs ascending celebration scale)
+    // Play for 10 seconds sequentially
     if (type === 'goal') {
-      [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        const t = ctx.currentTime + i * 0.16;
-        gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.3, t + 0.04);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
-        osc.start(t);
-        osc.stop(t + 0.55);
-      });
+      const notes = [523.25, 659.25, 783.99, 1046.50];
+      const repeatInterval = 1.2;
+      const durationSec = 10;
+      const repeatCount = Math.ceil(durationSec / repeatInterval);
+      
+      for (let r = 0; r < repeatCount; r++) {
+        const loopStart = startTime + r * repeatInterval;
+        notes.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          const t = loopStart + i * 0.16;
+          gain.gain.setValueAtTime(0, t);
+          gain.gain.linearRampToValueAtTime(0.3, t + 0.04);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+          osc.start(t);
+          osc.stop(t + 0.55);
+        });
+      }
       return;
     }
 
@@ -84,23 +94,31 @@ function playSound(type: 'goal' | 'alarm' | 'warning' | 'followup', tone: 'class
       }
     }
 
-    // Synthesize notes sequentially
-    freqs.forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = oscType;
-      osc.frequency.value = freq;
-      
-      const startTime = ctx.currentTime + i * noteSpacing;
-      gain.gain.setValueAtTime(0, startTime);
-      gain.gain.linearRampToValueAtTime(volume, startTime + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.001, startTime + decayTime);
-      
-      osc.start(startTime);
-      osc.stop(startTime + decayTime + 0.1);
-    });
+    // Synthesize notes
+    const patternDuration = freqs.length * noteSpacing + decayTime;
+    const repeatInterval = Math.max(patternDuration + 0.4, 1.5);
+    const totalDuration = (type === 'alarm') ? 10 : patternDuration; // Play for 10s if alarm, otherwise single play
+    const repeatCount = (type === 'alarm') ? Math.ceil(totalDuration / repeatInterval) : 1;
+
+    for (let r = 0; r < repeatCount; r++) {
+      const loopStart = startTime + r * repeatInterval;
+      freqs.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = oscType;
+        osc.frequency.value = freq;
+        
+        const startTimeNote = loopStart + i * noteSpacing;
+        gain.gain.setValueAtTime(0, startTimeNote);
+        gain.gain.linearRampToValueAtTime(volume, startTimeNote + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, startTimeNote + decayTime);
+        
+        osc.start(startTimeNote);
+        osc.stop(startTimeNote + decayTime + 0.1);
+      });
+    }
   } catch {
     // AudioContext may be blocked - silently ignore
   }
@@ -118,6 +136,8 @@ interface GoalAlarmProps {
   todayCount: number;
   intervalStep: string;
   onIntervalStepChange: (step: string) => void;
+  goalInput: string;
+  onGoalInputChange: (val: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,7 +145,13 @@ interface GoalAlarmProps {
 // ---------------------------------------------------------------------------
 const PRESETS = ['50', '100', '200', '500', '1000'];
 
-export function GoalAlarm({ todayCount, intervalStep, onIntervalStepChange }: GoalAlarmProps) {
+export function GoalAlarm({
+  todayCount,
+  intervalStep,
+  onIntervalStepChange,
+  goalInput,
+  onGoalInputChange,
+}: GoalAlarmProps) {
   // Preset options synchronization
   const isPreset = PRESETS.includes(intervalStep);
   const [selectValue, setSelectValue] = useState(isPreset ? intervalStep : 'custom');
@@ -136,16 +162,11 @@ export function GoalAlarm({ todayCount, intervalStep, onIntervalStepChange }: Go
   }, [intervalStep]);
 
   // ── Daily Sending Target ─────────────────────────────────────────────────────
-  const [goalInput, setGoalInput] = useState(() => localStorage.getItem(GOAL_KEY) || '');
   const [goalReached, setGoalReached] = useState(false);
 
   const goal = parseInt(goalInput, 10);
   const validGoal = !isNaN(goal) && goal > 0;
   const progress = validGoal ? Math.min((todayCount / goal) * 100, 100) : 0;
-
-  useEffect(() => {
-    localStorage.setItem(GOAL_KEY, goalInput);
-  }, [goalInput]);
 
   // Fire celebration when target crossed
   useEffect(() => {
@@ -203,15 +224,16 @@ export function GoalAlarm({ todayCount, intervalStep, onIntervalStepChange }: Go
       return;
     }
 
-    const currentStepIndex = Math.floor((todayCount + warningBuffer) / step);
-    const nextMilestone = currentStepIndex > 0 ? currentStepIndex * step : step;
-    
-    // Check if cooldown allows sound
+    // Calculate current milestone index & crossed milestone values precisely
+    const currentMilestoneIndex = Math.floor(todayCount / step);
+    const crossedMilestone = currentMilestoneIndex * step;
+    const nextMilestone = (currentMilestoneIndex + 1) * step;
+
     const now = Date.now();
     const isCooldownActive = now - lastChimeTime.current < cooldownSec * 1000;
 
-    // 1. Warning Trigger (warningBuffer before next milestone)
-    if (todayCount === nextMilestone - warningBuffer && warningBuffer > 0) {
+    // 1. Warning Trigger (when count enters the warning zone of nextMilestone)
+    if (warningBuffer > 0 && todayCount >= nextMilestone - warningBuffer && todayCount < nextMilestone) {
       if (lastFiredWarning.current !== nextMilestone) {
         lastFiredWarning.current = nextMilestone;
         if (!isCooldownActive) {
@@ -220,37 +242,37 @@ export function GoalAlarm({ todayCount, intervalStep, onIntervalStepChange }: Go
         }
         toast({
           title: `⏰ Pre-Milestone Warning!`,
-          description: `Just ${warningBuffer} more to reach ${nextMilestone} emails!`,
+          description: `Just ${nextMilestone - todayCount} more to reach ${nextMilestone} emails!`,
         });
       }
     }
 
-    // 2. Exact Milestone Trigger
-    if (todayCount === nextMilestone && enableExact) {
-      if (lastFiredExact.current !== nextMilestone) {
-        lastFiredExact.current = nextMilestone;
+    // 2. Exact Milestone Trigger (when we reach or cross crossedMilestone)
+    if (enableExact && crossedMilestone > 0 && todayCount >= crossedMilestone) {
+      if (lastFiredExact.current !== crossedMilestone) {
+        lastFiredExact.current = crossedMilestone;
         if (!isCooldownActive) {
           playSound('alarm', alarmTone);
           lastChimeTime.current = now;
         }
         toast({
           title: `🎉 Milestone Reached!`,
-          description: `Crossed exactly ${nextMilestone} emails sent today!`,
+          description: `Crossed exactly ${crossedMilestone} emails sent today!`,
         });
       }
     }
 
-    // 3. Followup Trigger (followupBuffer after milestone)
-    if (todayCount === nextMilestone + followupBuffer && followupBuffer > 0) {
-      if (lastFiredFollowup.current !== nextMilestone) {
-        lastFiredFollowup.current = nextMilestone;
+    // 3. Followup Trigger (when count enters or crosses the followup zone of crossedMilestone)
+    if (followupBuffer > 0 && crossedMilestone > 0 && todayCount >= crossedMilestone + followupBuffer) {
+      if (lastFiredFollowup.current !== crossedMilestone) {
+        lastFiredFollowup.current = crossedMilestone;
         if (!isCooldownActive) {
           playSound('followup', alarmTone);
           lastChimeTime.current = now;
         }
         toast({
           title: `📈 Milestone Cleared!`,
-          description: `Sent ${followupBuffer} more after crossing ${nextMilestone} emails!`,
+          description: `Sent ${todayCount - crossedMilestone} after crossing ${crossedMilestone} emails!`,
         });
       }
     }
@@ -293,7 +315,7 @@ export function GoalAlarm({ todayCount, intervalStep, onIntervalStepChange }: Go
               min="1"
               placeholder="e.g. 10000"
               value={goalInput}
-              onChange={(e) => { setGoalInput(e.target.value); setGoalReached(false); }}
+              onChange={(e) => { onGoalInputChange(e.target.value); setGoalReached(false); }}
               className="bg-background h-8 text-xs"
             />
             {validGoal && (

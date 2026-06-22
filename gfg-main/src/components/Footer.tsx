@@ -7,7 +7,7 @@ export function Footer() {
       <div className="mx-auto max-w-4xl px-4 grid grid-cols-1 md:grid-cols-3 gap-8">
         {/* Brand Column */}
         <div className="space-y-3 text-center md:text-left">
-          <p className="text-sm font-semibold tracking-tight text-foreground/90">Peakconix Sender</p>
+          <p className="text-sm font-semibold tracking-tight text-foreground/90">Peak Xender</p>
           <p className="text-xs text-muted-foreground max-w-xs mx-auto md:mx-0 leading-relaxed">
             Lightning-fast bulk email outreach tool designed for speed and simplicity. 100% client-side and privacy-focused.
           </p>
@@ -20,7 +20,7 @@ export function Footer() {
         <div className="flex flex-col items-center md:items-start space-y-3">
           <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/80">Navigation</h4>
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-center md:text-left">
-            <Link to="/" className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 justify-center md:justify-start">
+            <Link to="/send" className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 justify-center md:justify-start">
               <Home className="h-3 w-3" /> Home
             </Link>
             <Link to="/dashboard" className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 justify-center md:justify-start">
@@ -57,7 +57,7 @@ export function Footer() {
             >
               <Mail className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
               <span className="text-xs font-mono text-muted-foreground group-hover:text-foreground transition-colors truncate">
-                peakconix@gmail.com
+                peakxender@gmail.com
               </span>
             </a>
             <a 
@@ -72,14 +72,14 @@ export function Footer() {
               </span>
             </a>
             <a 
-              href="https://www.instagram.com/peakconix?utm_source=qr&igsh=Y2xoanAxN3RjM2oy" 
+              href="https://www.instagram.com/peakconix" 
               target="_blank" 
               rel="noopener noreferrer" 
               className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/60 bg-card/50 hover:bg-pink-500/5 hover:border-pink-500/30 transition-all group"
             >
               <Instagram className="h-3.5 w-3.5 text-muted-foreground group-hover:text-pink-500 transition-colors" />
               <span className="text-xs font-mono text-muted-foreground group-hover:text-foreground transition-colors">
-                @peakconix
+                @peakxender
               </span>
             </a>
             <a 

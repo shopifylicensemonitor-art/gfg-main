@@ -48,7 +48,7 @@ export default function Dashboard() {
       setError(null);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Could not connect to the Peakconix API server.');
+      setError(err.message || 'Could not connect to the Peak Xender API server.');
     }
   }, []);
 
@@ -142,7 +142,7 @@ export default function Dashboard() {
   return (
     <AppShell>
       <SEO
-        title="Dashboard - Peakconix Sender Console"
+        title="Dashboard - Peak Xender"
         description="Premium analytics and background outbound delivery logs for email campaigns."
       />
 
@@ -155,7 +155,7 @@ export default function Dashboard() {
               Welcome Back, Alex! 👋
             </h1>
             <p className="text-xs text-muted-foreground">
-              Here's the latest performance update for your Peakconix campaigns.
+              Here's the latest performance update for your Peak Xender campaigns.
             </p>
           </div>
           <div className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-muted text-muted-foreground border border-border shrink-0 z-10">
@@ -476,7 +476,7 @@ export default function Dashboard() {
           ) : accounts.length === 0 ? (
             <Card className="p-8 text-center border-border bg-card">
               <Mail className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground">No warm-up accounts linked to Peakconix.</p>
+              <p className="text-xs text-muted-foreground">No warm-up accounts linked to Peak Xender.</p>
             </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

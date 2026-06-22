@@ -2,12 +2,12 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BrowserRouter, HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense, useEffect, useState, useCallback } from "react";
-import Index from "./pages/Index";
+import Landing from "./pages/Landing";
 import { initCapacitor, isNativePlatform } from "./lib/capacitor";
 import clarity from "@microsoft/clarity";
-import PinModal from "./components/PinModal";
 
 // Lazy-load non-critical routes for faster initial load
+const Index = lazy(() => import("./pages/Index"));
 const Help = lazy(() => import("./pages/Help"));
 const Privacy = lazy(() => import("./pages/Privacy"));
 const Terms = lazy(() => import("./pages/Terms"));
@@ -16,8 +16,9 @@ const Contact = lazy(() => import("./pages/Contact"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Tracker = lazy(() => import("./pages/Tracker"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const Login = lazy(() => import("./pages/Login"));
 
-// MailFlow Integrated Pages
+// Peak Xender Integrated Pages
 const Accounts = lazy(() => import("./pages/Accounts"));
 const Campaigns = lazy(() => import("./pages/Campaigns"));
 const Templates = lazy(() => import("./pages/Templates"));
@@ -31,35 +32,17 @@ const Router = isNativePlatform() ? HashRouter : BrowserRouter;
 const CLARITY_PROJECT_ID = "q6srfz9g0o";
 
 // ---------------------------------------------------------------------------
-// Security PIN Protected Route Wrapper
+// Security Protected Route Wrapper (JWT or PIN)
 // ---------------------------------------------------------------------------
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const [verified, setVerified] = useState<boolean>(() => {
-    return !!sessionStorage.getItem("access_pin");
-  });
+  const token = localStorage.getItem("auth_token");
 
-  const handleSuccess = (pin: string) => {
-    sessionStorage.setItem("access_pin", pin);
-    setVerified(true);
-  };
-
-  const handleCancel = () => {
-    // Redirect back to home page if they cancel authentication
-    window.location.href = "/";
-  };
-
-  if (!verified) {
-    return (
-      <PinModal 
-        onSuccess={handleSuccess} 
-        onCancel={handleCancel} 
-        actionLabel="access secure administration dashboards" 
-      />
-    );
+  if (!token) {
+    return <Navigate to="/login" replace />;
   }
 
   return <>{children}</>;
@@ -69,34 +52,9 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
 // App Entry Component
 // ---------------------------------------------------------------------------
 const App = () => {
-  // Global PinModal overrides for inline actions
-  const [showActionPinModal, setShowActionPinModal] = useState<boolean>(false);
-  const [actionLabel, setActionLabel] = useState<string>("");
-  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
-
   const requirePin = useCallback((label: string, action: () => void) => {
-    if (sessionStorage.getItem("access_pin")) {
-      action();
-      return;
-    }
-    setActionLabel(label);
-    setPendingAction(() => action);
-    setShowActionPinModal(true);
+    action();
   }, []);
-
-  const handleActionSuccess = (pin: string) => {
-    sessionStorage.setItem("access_pin", pin);
-    setShowActionPinModal(false);
-    if (pendingAction) {
-      pendingAction();
-      setPendingAction(null);
-    }
-  };
-
-  const handleActionCancel = () => {
-    setShowActionPinModal(false);
-    setPendingAction(null);
-  };
 
   useEffect(() => {
     initCapacitor();
@@ -105,34 +63,57 @@ const App = () => {
     if (import.meta.env.PROD) {
       clarity.init(CLARITY_PROJECT_ID);
     }
+
+    // Capture JWT token from OAuth callback redirect
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+    if (token) {
+      localStorage.setItem("auth_token", token);
+      // Clean the URL
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
 
   return (
     <TooltipProvider>
       <Toaster />
-      
-      {/* Action-level PIN Gate */}
-      {showActionPinModal && (
-        <PinModal
-          onSuccess={handleActionSuccess}
-          onCancel={handleActionCancel}
-          actionLabel={actionLabel}
-        />
-      )}
 
       <Router>
         <Suspense fallback={<div className="flex items-center justify-center h-screen text-muted-foreground bg-background">Loading...</div>}>
           <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/tracker" element={<Tracker />} />
+            <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<Login />} />
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/help" element={<Help />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
             
-            {/* Protected MailFlow routes */}
+            {/* Protected Peak Xender routes */}
+            <Route 
+              path="/send" 
+              element={
+                <ProtectedRoute>
+                  <Index />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/dashboard" 
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/tracker" 
+              element={
+                <ProtectedRoute>
+                  <Tracker />
+                </ProtectedRoute>
+              } 
+            />
             <Route 
               path="/accounts" 
               element={

@@ -18,13 +18,13 @@ export const SEO = ({
   canonicalUrl,
   noindex = false,
   ogType = 'website',
-  ogImage = '/logo-light.jpg',
+  ogImage = '/peak-xender-logo.svg',
   schema,
 }: SEOProps) => {
   useEffect(() => {
     // 1. Title Update
-    const defaultTitle = 'Peakconix Sender - Free Bulk Email outreach & Personalization Generator';
-    document.title = title ? `${title} | Peakconix Sender` : defaultTitle;
+    const defaultTitle = 'Peak Xender - Free Bulk Email Outreach & Personalization Console';
+    document.title = title ? `${title} | Peak Xender` : defaultTitle;
 
     // Helper to get or create head tags
     const getOrCreateMeta = (nameOrProperty: string, valueAttribute: 'content' | 'href' = 'content'): HTMLMetaElement | HTMLLinkElement => {
@@ -81,7 +81,7 @@ export const SEO = ({
 
     // 5. Open Graph Core
     const ogTitleMeta = getOrCreateMeta('og:title') as HTMLMetaElement;
-    ogTitleMeta.content = title || 'Peakconix Sender';
+    ogTitleMeta.content = title || 'Peak Xender';
 
     const ogTypeMeta = getOrCreateMeta('og:type') as HTMLMetaElement;
     ogTypeMeta.content = ogType;
@@ -99,7 +99,7 @@ export const SEO = ({
     twCardMeta.content = 'summary_large_image';
 
     const twTitleMeta = getOrCreateMeta('twitter:title') as HTMLMetaElement;
-    twTitleMeta.content = title || 'Peakconix Sender';
+    twTitleMeta.content = title || 'Peak Xender';
 
     const twImgMeta = getOrCreateMeta('twitter:image') as HTMLMetaElement;
     twImgMeta.content = resolvedOgImage;
@@ -109,7 +109,7 @@ export const SEO = ({
     canonicalLink.href = canonicalUrl || currentUrl;
 
     // 8. Dynamic Schema (JSON-LD) injection
-    const SCHEMA_SCRIPT_ID = 'peakconix-seo-schema';
+    const SCHEMA_SCRIPT_ID = 'peak-xender-seo-schema';
     let schemaScript = document.head.querySelector(`#${SCHEMA_SCRIPT_ID}`) as HTMLScriptElement;
 
     if (schema) {

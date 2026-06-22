@@ -8,10 +8,10 @@ export default function About() {
   return (
     <AppShell>
       <SEO
-        title="About Us - How Peakconix Sender Works"
-        description="Learn what Peakconix Sender is, why we built it, and how it keeps your contact lists completely private — all inside your own browser."
+        title="About Us - How Peak Xender Works"
+        description="Learn what Peak Xender is, why we built it, and how it keeps your contact lists completely private — all inside your own browser."
         keywords={[
-          'about Peakconix Sender',
+          'about Peak Xender',
           'client-side outreach tool',
           'private email tools',
           'free email outreach'
@@ -19,19 +19,19 @@ export default function About() {
         schema={{
           '@context': 'https://schema.org',
           '@type': 'AboutPage',
-          'name': 'About Peakconix Sender',
-          'description': 'Peakconix Sender is a browser-based tool for sending personalized bulk email outreach through your own mail client — with zero servers involved.',
+          'name': 'About Peak Xender',
+          'description': 'Peak Xender is a browser-based tool for sending personalized bulk email outreach through your own mail client — with zero servers involved.',
           'publisher': {
             '@type': 'Organization',
-            'name': 'Peakconix',
+            'name': 'Peak Xender',
             'logo': {
               '@type': 'ImageObject',
-              'url': 'https://peakconix.lovable.app/logo-light.jpg'
+              'url': 'https://peakxender.lovable.app/peak-xender-logo.svg'
             }
           },
           'mainEntity': {
             '@type': 'SoftwareApplication',
-            'name': 'Peakconix Sender',
+            'name': 'Peak Xender',
             'applicationCategory': 'BusinessApplication',
             'operatingSystem': 'Any modern browser',
             'offers': {
@@ -44,7 +44,7 @@ export default function About() {
       />
       <div className="p-4 sm:p-8">
         <div className="mx-auto max-w-3xl space-y-10">
-              <Link to="/">
+              <Link to="/send">
                 <Button variant="ghost" className="pl-0 hover:pl-2 transition-all text-muted-foreground hover:text-foreground cursor-pointer">
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Back to Dashboard
@@ -56,7 +56,7 @@ export default function About() {
                   <Sparkles className="h-3.5 w-3.5" />
                   <span>Version 3.4.0</span>
                 </div>
-                <h1 className="text-4xl font-black tracking-tighter">About Peakconix Sender</h1>
+                <h1 className="text-4xl font-black tracking-tighter">About Peak Xender</h1>
                 <p className="text-sm text-muted-foreground">Built for people who send a lot of emails and don't want to pay monthly for the privilege.</p>
               </div>
 
@@ -67,7 +67,7 @@ export default function About() {
                     <h2 className="text-xl font-bold uppercase tracking-wider m-0">What This Is</h2>
                   </div>
                   <p className="leading-relaxed text-sm sm:text-base">
-                    Peakconix Sender started as a simple question: why do you need a subscription, an API key, and a server just to send 200 cold emails? You already have a mail client. You already have a contact list. You just need something to connect the two — fast.
+                    Peak Xender started as a simple question: why do you need a subscription, an API key, and a server just to send 200 cold emails? You already have a mail client. You already have a contact list. You just need something to connect the two — fast.
                   </p>
                   <p className="leading-relaxed text-sm sm:text-base">
                     So we built this. Paste your list, set your template, hit send. Everything runs in your browser — your mail app handles the actual sending, same as it always would.
@@ -102,7 +102,7 @@ export default function About() {
                     <h2 className="text-xl font-bold uppercase tracking-wider m-0">Why Not Just Use a Normal Tool?</h2>
                   </div>
                   <p className="leading-relaxed text-sm sm:text-base">
-                    Most bulk email tools want you to configure SMTP servers, hand over your API keys, or upload your contact list to their cloud. That's overhead nobody needs for everyday outreach. Peakconix Sender works the moment you open it — on web, mobile, or desktop. Paste your list and you're done in seconds, not hours.
+                    Most bulk email tools want you to configure SMTP servers, hand over your API keys, or upload your contact list to their cloud. That's overhead nobody needs for everyday outreach. Peak Xender works the moment you open it — on web, mobile, or desktop. Paste your list and you're done in seconds, not hours.
                   </p>
                 </section>
               </div>

@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api, type LogItem } from '../api';
 import { AppShell } from '@/components/AppShell';
 import { SEO } from '@/components/SEO';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import { FileText, RefreshCw, Send, CheckCircle, XCircle, AlertCircle, Filter, Calendar } from 'lucide-react';
 
@@ -12,8 +13,10 @@ export default function Logs() {
   const [loading, setLoading] = useState<boolean>(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [limit, setLimit] = useState<number>(50);
+  const [selectedLog, setSelectedLog] = useState<LogItem | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
 
-  const loadLogs = async () => {
+  const loadLogs = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api.getRecentLogs(limit);
@@ -27,11 +30,11 @@ export default function Logs() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [limit]);
 
   useEffect(() => {
     loadLogs();
-  }, [limit]);
+  }, [loadLogs]);
 
   const filteredLogs = logs.filter(log => {
     if (statusFilter === 'all') return true;
@@ -41,7 +44,7 @@ export default function Logs() {
   return (
     <AppShell>
       <SEO
-        title="Outreach Dispatch Logs - Peakconix"
+        title="Outreach Dispatch Logs - Peak Xender"
         description="Verify delivery audits, track Gmail rotating records, and inspect error details for cold email sends."
       />
       <div className="space-y-6">
@@ -120,6 +123,7 @@ export default function Logs() {
                         <th className="p-3 w-40">Sender (Account)</th>
                         <th className="p-3">Campaign / Details</th>
                         <th className="p-3 w-28 text-right">Timestamp</th>
+                        <th className="p-3 w-12 text-center">Audit</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/5">
@@ -154,6 +158,24 @@ export default function Logs() {
                                 {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                               </span>
                             </td>
+                            <td className="p-3 text-center">
+                              {log.final_subject ? (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setSelectedLog(log);
+                                    setIsPreviewOpen(true);
+                                  }}
+                                  className="h-7 w-7 text-primary hover:bg-primary/10 rounded-md"
+                                  title="View Sent Email"
+                                >
+                                  <FileText className="h-3.5 w-3.5" />
+                                </Button>
+                              ) : (
+                                <span className="text-muted-foreground/30">—</span>
+                              )}
+                            </td>
                           </tr>
                         );
                       })}
@@ -164,6 +186,53 @@ export default function Logs() {
             </CardContent>
           </Card>
       </div>
+
+      {/* Audit Log Email Preview Modal */}
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+        <DialogContent className="max-w-3xl bg-background border-border p-6 rounded-2xl animate-in zoom-in-95 duration-200">
+          <DialogHeader className="pb-3 border-b border-border/40">
+            <DialogTitle className="flex items-center gap-2 text-lg font-black tracking-tight">
+              <FileText className="h-5 w-5 text-primary" />
+              <span>Sent Email Audit Log</span>
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Below is the exact email content as rendered and dispatched to the recipient.
+            </p>
+          </DialogHeader>
+
+          {selectedLog && (
+            <div className="space-y-4 pt-4">
+              <div className="border border-border/60 bg-muted/5 rounded-xl overflow-hidden shadow-sm">
+                <div className="px-4 py-2.5 bg-muted/40 border-b border-border/40 grid grid-cols-2 gap-2 text-[10px] font-mono text-muted-foreground">
+                  <div>
+                    <span className="font-bold text-foreground">To: </span>
+                    <span>{selectedLog.recipient_email}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-bold text-foreground">From: </span>
+                    <span>{selectedLog.sender_email || '—'}</span>
+                  </div>
+                </div>
+
+                <div className="px-4 py-2.5 border-b border-border/20 text-xs font-bold text-foreground">
+                  <span className="text-muted-foreground font-mono mr-2">Subject:</span>
+                  {selectedLog.final_subject}
+                </div>
+
+                <div className="p-4 text-xs text-foreground bg-card overflow-x-auto min-h-[150px] leading-relaxed">
+                  <div dangerouslySetInnerHTML={{ __html: selectedLog.final_body || '<p class="text-muted-foreground italic">No HTML content recorded.</p>' }} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="pt-3 border-t border-border/40 flex justify-end">
+            <Button onClick={() => setIsPreviewOpen(false)} className="text-xs">
+              Close Audit Log
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

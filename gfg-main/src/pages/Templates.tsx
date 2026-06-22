@@ -156,7 +156,7 @@ export default function Templates({ requirePin }: TemplatesProps) {
   return (
     <AppShell>
       <SEO
-        title="Email Outreach Templates - Peakconix"
+        title="Email Outreach Templates - Peak Xender"
         description="Design reusable cold outreach HTML layouts with live preview frames and plain-text fallbacks."
       />
       <div className="space-y-6 font-sans">
@@ -186,7 +186,7 @@ export default function Templates({ requirePin }: TemplatesProps) {
             <div className="space-y-1">
               <p className="font-bold">Avoid spam folders using rotating content</p>
               <p>
-                When launching campaign flows, you can specify multiple templates. MailFlow dynamically rotates these layouts so that each recipient receives a slightly randomized version, disrupting signature filters and increasing inbox rates.
+                When launching campaign flows, you can specify multiple templates. Peak Xender dynamically rotates these layouts so that each recipient receives a slightly randomized version, disrupting signature filters and increasing inbox rates.
               </p>
             </div>
           </div>

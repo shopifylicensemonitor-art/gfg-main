@@ -80,7 +80,7 @@ export default function Tracker() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `peakconix-outreach-sent-history-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `peakxender-outreach-sent-history-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
 
@@ -133,7 +133,7 @@ export default function Tracker() {
   return (
     <AppShell>
       <SEO
-        title="Outreach Tracker - Peakconix Sender"
+        title="Outreach Tracker - Peak Xender"
         description="View your outreach logs, track sent emails, see timestamps and send modes, search logs, and export your history to CSV."
       />
       <div className="space-y-6">

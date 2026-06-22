@@ -30,6 +30,8 @@ interface GeneratedEmailsProps {
   onSendBatchClick: (emails: string[]) => void;
   bccBatchSize: number;
   bccBatchOpenCount: number;
+  dailyCount: number;
+  goalInput: string;
 }
 
 // Row component for react-window v2.2.5
@@ -46,6 +48,7 @@ interface RowProps {
   myInboxTo: string;
   ccRoutingMode: 'reroute' | 'normal';
   enableRandomization: boolean;
+  isOverLimit: boolean;
 }
 
 // Helper to highlight search matches in email text
@@ -68,7 +71,7 @@ function HighlightedEmail({ email, query }: { email: string; query: string }) {
 
 const Row = memo(
   ({ index, style, ariaAttributes, ...props }: { index: number; style: CSSProperties; ariaAttributes: { "aria-posinset": number; "aria-setsize": number; role: "listitem" } } & RowProps) => {
-    const { entries, subject, body, onSendClick, userName, sentStatus, searchQuery, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization } = props;
+    const { entries, subject, body, onSendClick, userName, sentStatus, searchQuery, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization, isOverLimit } = props;
     const entry = entries[index];
     if (!entry) return <></>;
 
@@ -78,6 +81,15 @@ const Row = memo(
     const handleClick = (e: React.MouseEvent) => {
       if (!isValid || isSent) {
         e.preventDefault();
+        return;
+      }
+      if (isOverLimit) {
+        e.preventDefault();
+        toast({
+          title: "Daily Limit Reached",
+          description: "You have reached your daily sending target limit.",
+          variant: "destructive"
+        });
         return;
       }
       e.preventDefault();
@@ -101,18 +113,24 @@ const Row = memo(
       .replace(/{sname}/g, pSname)
       .replace(/{brand}/g, userName);
 
-    // Double curly brace {{variable}} replacements
-    if (entry.fields) {
-      processedSubject = processedSubject.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-        return entry.fields?.[key] !== undefined ? entry.fields[key] : '';
-      });
-      processedBody = processedBody.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-        return entry.fields?.[key] !== undefined ? entry.fields[key] : '';
-      });
-    } else {
-      processedSubject = processedSubject.replace(/\{\{(\w+)\}\}/g, '');
-      processedBody = processedBody.replace(/\{\{(\w+)\}\}/g, '');
-    }
+    // Double curly brace {{variable}} replacements with built-in fallbacks
+    const resolveVar = (key: string): string => {
+      const normKey = key.toLowerCase();
+      // Built-in fallbacks (mirror scheduler.js)
+      if (normKey === 'email') return entry.email;
+      if (normKey === 'name' || normKey === 'first_name') return displayName;
+      if (normKey === 'store' || normKey === 'store_name') return entry.fields?.store_name || domainPart || '';
+      if (normKey === 'sname') return pSname;
+      if (normKey === 'brand') return userName;
+      if (normKey === 'niche') return entry.fields?.niche || '';
+      if (normKey === 'pain_point') return entry.fields?.pain_point || '';
+      // Custom fields from CSV
+      if (entry.fields?.[key] !== undefined) return entry.fields[key];
+      if (entry.fields?.[normKey] !== undefined) return entry.fields[normKey];
+      return '';
+    };
+    processedSubject = processedSubject.replace(/\{\{(\w+)\}\}/g, (_, key) => resolveVar(key));
+    processedBody = processedBody.replace(/\{\{(\w+)\}\}/g, (_, key) => resolveVar(key));
 
     const mailtoLink = isValid
       ? buildMailtoLink({
@@ -130,8 +148,8 @@ const Row = memo(
     const textStyles = !isValid
       ? 'text-destructive opacity-80'
       : isSent
-        ? 'text-accent font-medium'
-        : 'text-foreground hover:text-primary';
+        ? 'text-accent font-semibold'
+        : 'text-foreground hover:text-primary transition-colors';
 
     const LinkComponent = isValid && !isSent ? 'a' : 'div';
 
@@ -139,62 +157,64 @@ const Row = memo(
     const isPublic = domainPart ? PUBLIC_PROVIDERS.has(domainPart.toLowerCase()) : false;
 
     return (
-      <div style={style} {...ariaAttributes} className="px-1 box-border">
+      <div style={style} {...ariaAttributes} className="px-2 py-1 box-border">
         <LinkComponent
           href={LinkComponent === 'a' ? mailtoLink : undefined}
-          className={`group flex items-center justify-between px-2.5 rounded-sm border-b border-border/[0.03] h-full ${isValid && !isSent
-            ? 'cursor-pointer hover:bg-muted/10'
-            : 'bg-transparent'
-            } ${isSent ? 'bg-accent-[0.02]' : ''}`}
+          className={`group flex items-center justify-between px-3 py-2.5 rounded-xl border border-transparent transition-all duration-300 h-full animate-row-entrance ${
+            isValid && !isSent
+              ? 'cursor-pointer hover:bg-muted/15 hover:border-primary/15 hover:shadow-md hover:translate-x-[2px]'
+              : 'bg-transparent'
+          } ${isSent ? 'bg-primary/[0.01]' : ''}`}
           onClick={handleClick}
         >
-          <div className="flex items-center gap-2.5 overflow-hidden">
-            <span className="text-[11px] font-mono text-muted-foreground/90 w-7 flex-shrink-0">
+          <div className="flex items-center gap-3 overflow-hidden">
+            <span className="text-[10px] font-mono text-muted-foreground/60 w-6 flex-shrink-0">
               {entry.sequenceId.toString().padStart(2, '0')}
             </span>
             <span className={`font-mono text-[12px] truncate ${textStyles}`}>
               {entry.name ? (
                 <span className="flex items-center gap-1.5">
-                  <span className="font-semibold text-foreground truncate max-w-[120px]">{entry.name}</span>
-                  <span className="text-muted-foreground/60 text-[11px]">&lt;<HighlightedEmail email={entry.email} query={searchQuery} />&gt;</span>
+                  <span className="font-bold text-foreground truncate max-w-[120px]">{entry.name}</span>
+                  <span className="text-muted-foreground/50 text-[10px]">&lt;<HighlightedEmail email={entry.email} query={searchQuery} />&gt;</span>
                 </span>
               ) : (
                 <HighlightedEmail email={entry.email} query={searchQuery} />
               )}
             </span>
             {entry.fields && (
-              <span className="hidden sm:inline-flex items-center gap-1.5 ml-2 text-[9px] text-muted-foreground/50 border border-border/10 px-1.5 py-0.5 rounded bg-muted/20">
-                {entry.fields.first_name && <span className="font-semibold">{entry.fields.first_name}</span>}
-                {entry.fields.store_name && <span>• {entry.fields.store_name}</span>}
-                {entry.fields.niche && <span className="italic">• {entry.fields.niche}</span>}
+              <span className="hidden sm:inline-flex items-center gap-1.5 ml-3 text-[9px] font-mono text-muted-foreground/60 border border-border/10 px-2 py-0.5 rounded-md bg-muted/30">
+                {entry.fields.first_name && <span className="font-semibold text-foreground">{entry.fields.first_name}</span>}
+                {entry.fields.store_name && <span className="text-primary/75">🏢 {entry.fields.store_name}</span>}
+                {entry.fields.niche && <span className="italic text-emerald-500/80">🏷️ {entry.fields.niche}</span>}
               </span>
             )}
             {!isValid && (
-              <Badge variant="outline" className="text-[7px] h-3 px-1 border-destructive/10 bg-destructive/[0.03] text-destructive font-normal">
+              <Badge variant="outline" className="text-[7px] h-4 px-1.5 border-destructive/10 bg-destructive/[0.03] text-destructive font-semibold">
                 Invalid
               </Badge>
             )}
             {isValid && (
               <span title={isPublic ? 'Public provider' : 'Personal/Business domain'} className="shrink-0">
                 {isPublic ? (
-                  <Globe className="h-2.5 w-2.5 text-blue-400/60" />
+                  <Globe className="h-3 w-3 text-blue-400/50" />
                 ) : (
-                  <Building2 className="h-2.5 w-2.5 text-emerald-400/60" />
+                  <Building2 className="h-3 w-3 text-emerald-400/50" />
                 )}
               </span>
             )}
           </div>
 
           {isValid && (
-            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-x-2 group-hover:translate-x-0">
               {isSent ? (
-                <Badge variant="secondary" className="bg-accent-[0.03] text-accent border-none text-[7px] h-3.5 px-1 font-normal uppercase tracking-tighter">
-                  SENT
+                <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 text-[9px] h-6.5 px-2 font-bold uppercase tracking-wider animate-bounce-spring flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  Sent
                 </Badge>
               ) : (
-                <span className="text-[7px] text-primary font-medium flex items-center gap-1 uppercase tracking-tighter opacity-70">
-                  Open
-                  <Send className="h-1.5 w-1.5" />
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 text-[9px] font-bold text-primary border border-primary/10 transition-all duration-200 hover:bg-primary hover:text-primary-foreground hover:shadow-lg hover:shadow-primary/30 hover:scale-105 active:scale-95">
+                  Open Draft
+                  <Send className="h-2.5 w-2.5 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                 </span>
               )}
             </div>
@@ -223,6 +243,8 @@ export function GeneratedEmails({
   onSendBatchClick,
   bccBatchSize,
   bccBatchOpenCount,
+  dailyCount,
+  goalInput,
 }: GeneratedEmailsProps) {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isOpeningBccBatches, setIsOpeningBccBatches] = useState(false);
@@ -234,7 +256,21 @@ export function GeneratedEmails({
   const [domainFilter, setDomainFilter] = useState<DomainFilterType>('all');
   const [sort, setSort] = useState<SortType>('default');
 
+  const goal = parseInt(goalInput, 10);
+  const validGoal = !isNaN(goal) && goal > 0;
+  const isOverLimit = validGoal && dailyCount >= goal;
+
   const triggerEmail = useCallback((entry: EmailEntry) => {
+    if (isOverLimit) {
+      toast({
+        title: "Daily Limit Reached",
+        description: "Stopping auto-open sequence.",
+        variant: "destructive"
+      });
+      setIsOpeningBatch(false);
+      setBatchQueue([]);
+      return;
+    }
     const [localPart, domainPart] = entry.email.split('@');
     const pSname = domainPart ? domainPart.split('.')[0] : '';
     const displayName = entry.name || localPart;
@@ -249,18 +285,22 @@ export function GeneratedEmails({
       .replace(/{sname}/g, pSname)
       .replace(/{brand}/g, userName);
 
-    // Double curly brace {{variable}} replacements
-    if (entry.fields) {
-      processedSubject = processedSubject.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-        return entry.fields?.[key] !== undefined ? entry.fields[key] : '';
-      });
-      processedBody = processedBody.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-        return entry.fields?.[key] !== undefined ? entry.fields[key] : '';
-      });
-    } else {
-      processedSubject = processedSubject.replace(/\{\{(\w+)\}\}/g, '');
-      processedBody = processedBody.replace(/\{\{(\w+)\}\}/g, '');
-    }
+    // Double curly brace {{variable}} replacements with built-in fallbacks
+    const resolveVar = (key: string): string => {
+      const normKey = key.toLowerCase();
+      if (normKey === 'email') return entry.email;
+      if (normKey === 'name' || normKey === 'first_name') return displayName;
+      if (normKey === 'store' || normKey === 'store_name') return entry.fields?.store_name || domainPart || '';
+      if (normKey === 'sname') return pSname;
+      if (normKey === 'brand') return userName;
+      if (normKey === 'niche') return entry.fields?.niche || '';
+      if (normKey === 'pain_point') return entry.fields?.pain_point || '';
+      if (entry.fields?.[key] !== undefined) return entry.fields[key];
+      if (entry.fields?.[normKey] !== undefined) return entry.fields[normKey];
+      return '';
+    };
+    processedSubject = processedSubject.replace(/\{\{(\w+)\}\}/g, (_, key) => resolveVar(key));
+    processedBody = processedBody.replace(/\{\{(\w+)\}\}/g, (_, key) => resolveVar(key));
 
     const link = buildMailtoLink({
       recipient: entry.email,
@@ -275,10 +315,20 @@ export function GeneratedEmails({
 
     window.open(link, '_blank');
     onSendClick(entry.email);
-  }, [subject, body, userName, onSendClick, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization]);
+  }, [subject, body, userName, onSendClick, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization, isOverLimit]);
 
   useEffect(() => {
     if (batchQueue.length > 0 && isOpeningBatch) {
+      if (isOverLimit) {
+        toast({
+          title: "Daily Limit Reached",
+          description: "Auto-open sequence stopped.",
+          variant: "destructive"
+        });
+        setIsOpeningBatch(false);
+        setBatchQueue([]);
+        return;
+      }
       const handleFocus = () => {
         const timer = setTimeout(() => {
           setBatchQueue(prev => {
@@ -298,10 +348,20 @@ export function GeneratedEmails({
       window.addEventListener('focus', handleFocus);
       return () => window.removeEventListener('focus', handleFocus);
     }
-  }, [batchQueue.length, isOpeningBatch, triggerEmail]);
+  }, [batchQueue.length, isOpeningBatch, triggerEmail, isOverLimit]);
 
   const triggerBccBatch = useCallback((batch: EmailEntry[]) => {
     if (batch.length === 0) return;
+    if (isOverLimit) {
+      toast({
+        title: "Daily Limit Reached",
+        description: "Stopping batch sequence.",
+        variant: "destructive"
+      });
+      setIsOpeningBccBatches(false);
+      setBccBatchQueue([]);
+      return;
+    }
 
     const recipient = myInboxTo ? myInboxTo.trim() : '';
     let targetBcc = batch.map(e => e.email).join(',');
@@ -352,10 +412,20 @@ export function GeneratedEmails({
     
     const emailsInBatch = batch.map(e => e.email);
     onSendBatchClick(emailsInBatch);
-  }, [subject, body, userName, onSendBatchClick, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization]);
+  }, [subject, body, userName, onSendBatchClick, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization, isOverLimit]);
 
   useEffect(() => {
     if (bccBatchQueue.length > 0 && isOpeningBccBatches) {
+      if (isOverLimit) {
+        toast({
+          title: "Daily Limit Reached",
+          description: "Batch sequence stopped.",
+          variant: "destructive"
+        });
+        setIsOpeningBccBatches(false);
+        setBccBatchQueue([]);
+        return;
+      }
       const handleFocus = () => {
         const timer = setTimeout(() => {
           setBccBatchQueue(prev => {
@@ -375,7 +445,7 @@ export function GeneratedEmails({
       window.addEventListener('focus', handleFocus);
       return () => window.removeEventListener('focus', handleFocus);
     }
-  }, [bccBatchQueue.length, isOpeningBccBatches, triggerBccBatch]);
+  }, [bccBatchQueue.length, isOpeningBccBatches, triggerBccBatch, isOverLimit]);
 
   // Layer 1: Search Filter (only re-runs when list or query changes)
   const searchFiltered = useMemo(() => {
@@ -469,7 +539,8 @@ export function GeneratedEmails({
     myInboxTo,
     ccRoutingMode,
     enableRandomization,
-  }), [filteredEmails, subject, body, onSendClick, userName, sentStatus, searchQuery, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization]);
+    isOverLimit,
+  }), [filteredEmails, subject, body, onSendClick, userName, sentStatus, searchQuery, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization, isOverLimit]);
 
   const filters: { key: FilterType; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -582,6 +653,64 @@ export function GeneratedEmails({
               <Layers className="h-3.5 w-3.5 mr-1 text-primary shrink-0" />
               <span className="text-[10px] sm:text-xs font-semibold">{isBatchMode ? 'Individual Mode' : 'BCC Batches'}</span>
             </Button>
+
+            {/* Sequential Auto-Open Toggle in Individual Mode */}
+            {!isBatchMode && pendingValid.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 sm:flex-none h-8 sm:h-7 text-[10px] sm:text-xs px-2.5 border border-primary/20 hover:bg-primary/5 text-primary"
+                onClick={() => {
+                  if (isOpeningBatch) {
+                    setIsOpeningBatch(false);
+                    setBatchQueue([]);
+                  } else {
+                    const toSend = searchFiltered.filter(e => !sentStatus[e.email] && e.isValid);
+                    setBatchQueue(toSend);
+                    setBatchTotal(toSend.length);
+                    setIsOpeningBatch(true);
+                    if (toSend.length > 0) {
+                      triggerEmail(toSend[0]);
+                      setBatchQueue(toSend.slice(1));
+                    }
+                  }
+                }}
+              >
+                <Send className="h-3 w-3 mr-1 text-primary shrink-0" />
+                <span className="text-[10px] sm:text-xs font-semibold">
+                  {isOpeningBatch ? 'Stop Auto-Open' : `Open Pending (${pendingValid.length})`}
+                </span>
+              </Button>
+            )}
+
+            {/* Sequential Auto-Open Toggle in Batch Mode */}
+            {isBatchMode && pendingBatches.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 sm:flex-none h-8 sm:h-7 text-[10px] sm:text-xs px-2.5 border border-primary/20 hover:bg-primary/5 text-primary"
+                onClick={() => {
+                  if (isOpeningBccBatches) {
+                    setIsOpeningBccBatches(false);
+                    setBccBatchQueue([]);
+                  } else {
+                    const limitToOpen = pendingBatches.slice(0, bccBatchOpenCount);
+                    setBccBatchQueue(limitToOpen);
+                    setBccBatchTotal(limitToOpen.length);
+                    setIsOpeningBccBatches(true);
+                    if (limitToOpen.length > 0) {
+                      triggerBccBatch(limitToOpen[0]);
+                      setBccBatchQueue(limitToOpen.slice(1));
+                    }
+                  }
+                }}
+              >
+                <Send className="h-3 w-3 mr-1 text-primary shrink-0" />
+                <span className="text-[10px] sm:text-xs font-semibold">
+                  {isOpeningBccBatches ? 'Stop Auto-Open' : `Open Batches (${pendingBatches.length})`}
+                </span>
+              </Button>
+            )}
 
             {/* Export */}
             <Button
@@ -762,9 +891,9 @@ export function GeneratedEmails({
           {filteredEmails.length > 0 ? (
             <VList
               rowCount={filteredEmails.length}
-              rowHeight={36}
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              rowComponent={Row as any}
+              rowHeight={48}
+              defaultHeight={400}
+              rowComponent={Row as React.ComponentType}
               rowProps={rowProps}
               className="scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/30 h-full"
               overscanCount={5}

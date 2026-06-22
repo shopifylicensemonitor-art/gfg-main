@@ -9,86 +9,74 @@ export default function Terms() {
         <AppShell>
             <SEO
                 title="Terms of Service - Outreach Compliance Guidelines"
-                description="Read the Terms of Service for Peakconix Sender. Learn about our terms, usage agreements, anti-spam compliance, and limitations of liability."
-                keywords={['Peakconix Sender terms', 'anti spam compliance', 'email outreach legal rules']}
+                description="Read the Terms of Service for Peak Xender. Learn about our terms, usage agreements, anti-spam compliance, and limitations of liability."
+                keywords={['Peak Xender terms', 'anti spam compliance', 'email outreach legal rules']}
                 schema={{
                   '@context': 'https://schema.org',
                   '@type': 'WebPage',
-                  'name': 'Terms of Service - Peakconix Sender',
-                  'description': 'Read the Terms of Service for Peakconix Sender. Learn about our terms, usage agreements, anti-spam compliance, and limitations of liability.'
+                  'name': 'Terms of Service - Peak Xender',
+                  'description': 'Read the Terms of Service for Peak Xender. Learn about our terms, usage agreements, anti-spam compliance, and limitations of liability.'
                 }}
             />
                     <div className="p-4 sm:p-8">
                         <div className="mx-auto max-w-3xl space-y-10">
-                        <Link to="/">
+                        <Link to="/campaigns">
                             <Button variant="ghost" className="pl-0 hover:pl-2 transition-all text-muted-foreground hover:text-foreground cursor-pointer">
                                 <ArrowLeft className="mr-2 h-4 w-4" />
-                                Back to Dashboard
+                                Back to Campaigns
                             </Button>
                         </Link>
 
                         <div className="space-y-4">
                             <h1 className="text-4xl font-black tracking-tighter">Terms of Service</h1>
-                            <p className="text-sm text-muted-foreground">Last updated: May 2026 • Version 3.4.0</p>
+                            <p className="text-sm text-muted-foreground">Last updated: June 2026 • Version 4.0.0</p>
                         </div>
 
                         <div className="prose prose-invert max-w-none space-y-10 text-foreground/90">
                             <section className="space-y-4">
                                 <div className="flex items-center gap-2 text-primary">
                                     <FileText className="h-5 w-5" />
-                                    <h2 className="text-xl font-bold uppercase tracking-wider m-0">1. What This Tool Does</h2>
+                                    <h2 className="text-xl font-bold uppercase tracking-wider m-0">1. Our Services</h2>
                                 </div>
                                 <p className="leading-relaxed">
-                                    Peakconix Sender helps you generate personalized email templates from a contact list and open them in your own mail client. That's it. We don't send emails on your behalf, and we don't touch your data. The tool is provided as-is — use it, it works.
+                                    Peak Xender is an email campaign management platform. We provide tools to connect SMTP servers or Google accounts (via OAuth2) to dispatch, personalize, and track marketing/outreach campaigns.
                                 </p>
                             </section>
 
                             <section className="space-y-4">
                                 <div className="flex items-center gap-2 text-primary">
                                     <Scale className="h-5 w-5" />
-                                    <h2 className="text-xl font-bold uppercase tracking-wider m-0">2. Your Responsibility</h2>
+                                    <h2 className="text-xl font-bold uppercase tracking-wider m-0">2. User Responsibilities & Compliance</h2>
                                 </div>
                                 <p className="leading-relaxed">
-                                    You're in charge of who you contact and how. Make sure you're following the rules in your country — CAN-SPAM in the US, GDPR in Europe, CASL in Canada. We can't send emails for you, so we also can't be responsible for how you use the mailto links this tool generates.
+                                    You represent that you have consent or valid legal grounds to email the contacts in your campaigns. You must follow the relevant legislation of the territories where you and your contacts reside (e.g. CAN-SPAM in the US, GDPR in Europe, CASL in Canada). Peak Xender is not responsible for any violations of these regulations.
                                 </p>
                             </section>
 
                             <section className="space-y-4">
                                 <div className="flex items-center gap-2 text-primary">
                                     <AlertCircle className="h-5 w-5" />
-                                    <h2 className="text-xl font-bold uppercase tracking-wider m-0">3. What You Can't Use This For</h2>
+                                    <h2 className="text-xl font-bold uppercase tracking-wider m-0">3. Anti-Spam & Limits</h2>
                                 </div>
                                 <p className="leading-relaxed">
-                                    Don't use Peakconix Sender to:
+                                    You agree not to use Peak Xender to send spam, phishing links, malware, or unsolicited bulk emails to recipients who have not opted in. We reserve the right to limit access or terminate accounts if high bounce rates, spam reports, or illegal activities are detected.
                                 </p>
-                                <ul className="list-disc list-inside space-y-2 ml-4">
-                                    <li>Spam people — unsolicited bulk email to people who didn't ask for it</li>
-                                    <li>Phishing, scams, harassment, or anything illegal</li>
-                                    <li>Violate someone else's privacy or intellectual property</li>
-                                </ul>
                             </section>
 
                             <section className="space-y-4">
                                 <div className="flex items-center gap-2 text-primary">
                                     <Gavel className="h-5 w-5" />
-                                    <h2 className="text-xl font-bold uppercase tracking-wider m-0">4. Liability</h2>
+                                    <h2 className="text-xl font-bold uppercase tracking-wider m-0">4. Google API & Credential Security</h2>
                                 </div>
                                 <p className="leading-relaxed">
-                                    We built this tool and made it free. If something goes wrong when you use it — a missed email, a wrong address, a campaign that didn't land — that's on you, not us. We're not liable for any losses, missed opportunities, or anything else that comes from using Peakconix Sender.
+                                    When you link a Google Account to Peak Xender, you authorize us to securely store access and refresh tokens. Peak Xender's use and transfer of information received from Google APIs will adhere to the Google API Services User Data Policy, including the Limited Use requirements.
                                 </p>
                             </section>
 
                             <section className="space-y-4">
-                                <h2 className="text-xl font-bold uppercase tracking-wider">5. Our Work</h2>
+                                <h2 className="text-xl font-bold uppercase tracking-wider">5. Disclaimer of Liabilities</h2>
                                 <p className="leading-relaxed">
-                                    The design, code, and brand behind Peakconix Sender belong to us. You're welcome to use the tool for your personal outreach or inside your business — just don't copy and redistribute it as your own.
-                                </p>
-                            </section>
-
-                            <section className="space-y-4">
-                                <h2 className="text-xl font-bold uppercase tracking-wider">6. Governing Law</h2>
-                                <p className="leading-relaxed">
-                                    These terms fall under the laws of your own jurisdiction. If you're using this tool somewhere, the rules where you are apply to how you use it.
+                                    Peak Xender is provided "as is", without warranty of any kind. Under no circumstances shall developers be liable for any direct, indirect, special, or consequential damages arising from the use of the platform (including, but not limited to, email Workspace suspensions, deliverability drops, or financial losses).
                                 </p>
                             </section>
                         </div>

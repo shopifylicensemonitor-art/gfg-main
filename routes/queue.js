@@ -16,11 +16,13 @@ router.get('/logs/recent', async (req, res) => {
   const limit = parseInt(req.query.limit) || 50;
   try {
     const db = await getDb();
-    const logs = db.prepare(`
-      SELECT l.*, a.email as sender_email, c.name as campaign_name
+    const logs = await db.prepare(`
+      SELECT l.*, a.email as sender_email, c.name as campaign_name,
+             q.final_subject, q.final_body
       FROM logs l
       LEFT JOIN accounts a ON l.account_id = a.id
       LEFT JOIN campaigns c ON l.campaign_id = c.id
+      LEFT JOIN queue q ON l.campaign_id = q.campaign_id AND l.recipient_email = q.recipient_email
       ORDER BY l.created_at DESC
       LIMIT ?
     `).all(limit);
@@ -44,7 +46,7 @@ router.get('/:campaignId', async (req, res) => {
     }
 
     sql += ' ORDER BY id';
-    const items = db.prepare(sql).all(...params);
+    const items = await db.prepare(sql).all(...params);
     res.json(items);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -55,7 +57,7 @@ router.get('/:campaignId', async (req, res) => {
 router.get('/:campaignId/stats', async (req, res) => {
   try {
     const db = await getDb();
-    const stats = db.prepare(`
+    const stats = await db.prepare(`
       SELECT
         COUNT(*)                                          as total,
         SUM(CASE WHEN status = 'pending'  THEN 1 ELSE 0 END) as pending,

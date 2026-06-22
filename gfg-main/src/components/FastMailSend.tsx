@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import type { EmailTemplate } from '@/hooks/useTemplates';
+import type { ContactListInfo } from '@/api';
 import { extractEmailsFromText } from '@/hooks/useEmailList';
 import { toast } from '@/hooks/use-toast';
 import { PUBLIC_PROVIDERS } from '@/lib/publicProviders';
@@ -64,6 +65,11 @@ interface FastMailSendProps {
   onBccBatchSizeChange: (size: number) => void;
   bccBatchOpenCount: number;
   onBccBatchOpenCountChange: (count: number) => void;
+  activeVariables?: string[];
+  savedLists?: ContactListInfo[];
+  onLoadSavedList?: (listName: string) => void;
+  autoScroll: boolean;
+  onAutoScrollChange: (enabled: boolean) => void;
 }
 
 
@@ -104,6 +110,11 @@ export function FastMailSend({
   onBccBatchSizeChange,
   bccBatchOpenCount,
   onBccBatchOpenCountChange,
+  activeVariables = [],
+  savedLists = [],
+  onLoadSavedList,
+  autoScroll,
+  onAutoScrollChange,
 }: FastMailSendProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -119,18 +130,52 @@ export function FastMailSend({
     const email = testRecipient.trim() || 'john.doe@example.com';
     const [localPart, domainPart] = email.split('@');
     const sname = domainPart ? domainPart.split('.')[0] : 'example';
-    const previewSubject = subject
+    let previewSubject = subject
       .replace(/{name}/g, localPart || 'john.doe')
       .replace(/{store}/g, domainPart || 'example.com')
       .replace(/{sname}/g, sname)
       .replace(/{brand}/g, userName || 'YourBrand');
-    const previewBody = body
+    let previewBody = body
       .replace(/{name}/g, localPart || 'john.doe')
       .replace(/{store}/g, domainPart || 'example.com')
       .replace(/{sname}/g, sname)
       .replace(/{brand}/g, userName || 'YourBrand');
+
+    // Also resolve {{variable}} placeholders with demo fallbacks
+    const resolvePreviewVar = (key: string): string => {
+      const normKey = key.toLowerCase();
+      if (normKey === 'email') return email;
+      if (normKey === 'name' || normKey === 'first_name') return localPart || 'john.doe';
+      if (normKey === 'store' || normKey === 'store_name') return domainPart || 'example.com';
+      if (normKey === 'sname') return sname;
+      if (normKey === 'brand') return userName || 'YourBrand';
+      if (normKey === 'niche') return 'ecommerce';
+      if (normKey === 'pain_point') return 'growth';
+      return `[${key}]`;
+    };
+    previewSubject = previewSubject.replace(/\{\{(\w+)\}\}/g, (_, key) => resolvePreviewVar(key));
+    previewBody = previewBody.replace(/\{\{(\w+)\}\}/g, (_, key) => resolvePreviewVar(key));
+
     return { subject: previewSubject, body: previewBody };
   }, [testRecipient, subject, body, userName]);
+
+  const variablesToDisplay = useMemo(() => {
+    const filteredActive = activeVariables.filter(v => v !== 'email' && v !== 'skip');
+    if (filteredActive.length > 0) {
+      const activeTags = filteredActive.map(v => ({ tag: `{{${v}}}` }));
+      if (!filteredActive.includes('brand')) {
+        activeTags.push({ tag: '{{brand}}' });
+      }
+      return activeTags;
+    }
+    return [
+      { tag: '{{first_name}}' },
+      { tag: '{{store_name}}' },
+      { tag: '{{niche}}' },
+      { tag: '{{pain_point}}' },
+      { tag: '{{brand}}' }
+    ];
+  }, [activeVariables]);
 
   const handleExtractPersonal = useCallback(() => {
     if (onFilterList) {
@@ -213,41 +258,72 @@ export function FastMailSend({
   }, [onSubjectChange, onBodyChange]);
 
   return (
-    <div id="main-input-section" className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+    <div id="main-input-section" className="space-y-5 rounded-2xl border border-border/80 bg-card/60 backdrop-blur-md p-6 shadow-xl relative overflow-hidden transition-all duration-300 hover:border-primary/20 hover:shadow-2xl">
+      {/* Top gradient accent line */}
+      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-primary via-indigo-500 to-emerald-500 opacity-80" />
+
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Send className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-semibold">Fast Mail Send</h2>
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl bg-primary/10 text-primary">
+            <Send className="h-5 w-5 text-primary animate-pulse" />
+          </div>
+          <div>
+            <h2 className="text-lg font-black tracking-tight text-foreground">Direct Send Panel</h2>
+            <p className="text-[9px] text-muted-foreground uppercase tracking-widest font-mono font-bold text-primary/80">Peak Xender Direct Outreach</p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={(e) => { e.preventDefault(); fileInputRef.current?.click(); }} className="text-xs h-8 px-2 text-muted-foreground hover:text-foreground">
-            <Upload className="mr-1.5 h-3.5 w-3.5" />
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={(e) => { e.preventDefault(); fileInputRef.current?.click(); }} 
+            className="text-xs h-8 px-3 text-muted-foreground hover:text-foreground hover:bg-muted/40 rounded-lg transition-all duration-200"
+          >
+            <Upload className="mr-1.5 h-3.5 w-3.5 text-primary" />
             Upload List
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-muted/40 text-muted-foreground hover:text-foreground">
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+            <DropdownMenuContent align="end" className="w-56 border-border bg-popover/95 backdrop-blur-md rounded-xl shadow-lg">
+              <DropdownMenuLabel className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground px-2.5 py-2">Actions</DropdownMenuLabel>
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <FileText className="mr-2 h-4 w-4" />
+                <DropdownMenuSubTrigger className="text-xs px-2.5 py-2">
+                  <Mail className="mr-2 h-4 w-4 text-primary" />
+                  Load Saved List
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-48 border-border bg-popover/95 backdrop-blur-md rounded-xl shadow-lg">
+                  {savedLists.length === 0 ? (
+                    <DropdownMenuItem disabled className="text-xs">No saved lists</DropdownMenuItem>
+                  ) : (
+                    savedLists.map(list => (
+                      <DropdownMenuItem key={list.list_name} onClick={() => onLoadSavedList?.(list.list_name)} className="text-xs px-2.5 py-2">
+                        <span className="truncate">{list.list_name} ({list.count})</span>
+                      </DropdownMenuItem>
+                    ))
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="text-xs px-2.5 py-2">
+                  <FileText className="mr-2 h-4 w-4 text-primary" />
                   Templates
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-48">
+                <DropdownMenuSubContent className="w-48 border-border bg-popover/95 backdrop-blur-md rounded-xl shadow-lg">
                   {templates.length === 0 ? (
-                    <DropdownMenuItem disabled>No templates</DropdownMenuItem>
+                    <DropdownMenuItem disabled className="text-xs">No templates</DropdownMenuItem>
                   ) : (
                     templates.map(t => (
-                      <DropdownMenuItem key={t.id} onClick={() => handleSelectTemplate(t)} className="justify-between">
+                      <DropdownMenuItem key={t.id} onClick={() => handleSelectTemplate(t)} className="justify-between text-xs px-2.5 py-2">
                         <span className="truncate">{t.name}</span>
                         <Trash2
-                          className="h-3 w-3 text-destructive opacity-50 hover:opacity-100"
+                          className="h-3.5 w-3.5 text-destructive opacity-50 hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-destructive/10"
                           onClick={(e) => { e.stopPropagation(); onDeleteTemplate(t.id); }}
                         />
                       </DropdownMenuItem>
@@ -256,13 +332,13 @@ export function FastMailSend({
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 
-              <DropdownMenuItem onClick={() => setIsSaveDialogOpen(true)}>
-                <Save className="mr-2 h-4 w-4" />
+              <DropdownMenuItem onClick={() => setIsSaveDialogOpen(true)} className="text-xs px-2.5 py-2">
+                <Save className="mr-2 h-4 w-4 text-primary" />
                 Save Template
               </DropdownMenuItem>
 
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onClearAllHistory} className="text-destructive focus:text-destructive">
+              <DropdownMenuSeparator className="bg-border/40" />
+              <DropdownMenuItem onClick={onClearAllHistory} className="text-xs px-2.5 py-2 text-destructive focus:text-destructive focus:bg-destructive/5">
                 <X className="mr-2 h-4 w-4" />
                 Clear All History
               </DropdownMenuItem>
@@ -281,26 +357,34 @@ export function FastMailSend({
 
       {/* Recipients Email */}
       <div className="space-y-2">
-        <label className="text-sm font-medium flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Mail className="h-3.5 w-3.5 text-primary" />
             Target Recipients
           </div>
-          <div className="flex items-center gap-3 text-xs">
-            <span className="text-success font-medium">Valid: {validCount}</span>
-            <span className="text-destructive font-medium">Invalid: {invalidCount}</span>
+          <div className="flex items-center gap-3 font-semibold">
+            <span className="text-success flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Valid: {validCount}
+            </span>
+            {invalidCount > 0 && (
+              <span className="text-destructive flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
+                Invalid: {invalidCount}
+              </span>
+            )}
           </div>
         </label>
         <Textarea
-          placeholder="Paste email list here..."
+          placeholder="Paste email list here... (one per line, format: email, or name:email, or custom CSV mappings)"
           value={emailText}
           onChange={(e) => onEmailTextChange(e.target.value)}
-          className="min-h-[120px] resize-none font-mono text-xs sm:text-sm border-muted transition-all focus:border-primary"
+          className="min-h-[120px] resize-none font-mono text-xs sm:text-sm border-muted/85 bg-background/30 transition-all duration-200 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-xl leading-relaxed"
         />
         {emailText && (
           <div className="flex justify-end">
-            <span className="text-[10px] text-muted-foreground">
-              {emailText.split('\n').filter(l => l.trim()).length} lines
+            <span className="text-[10px] font-mono text-muted-foreground/60">
+              {emailText.split('\n').filter(l => l.trim()).length} lines detected
             </span>
           </div>
         )}
@@ -308,43 +392,32 @@ export function FastMailSend({
 
       {/* Subject Line */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">Subject Line</label>
+        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Subject Line</label>
         <Input
-          placeholder="Use {name}, {store}, {sname}..."
+          placeholder="Use {{first_name}}, {{store_name}}, {{niche}}, {{pain_point}}..."
           value={subject}
           onChange={(e) => onSubjectChange(e.target.value)}
-          className="bg-background"
+          className="bg-background/30 border-muted/80 transition-all duration-200 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-xl h-10 text-xs sm:text-sm"
         />
       </div>
 
       {/* Message Body */}
       <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <label className="text-sm font-medium">Message Body</label>
-        </div>
+        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Message Body</label>
         <Textarea
           ref={bodyRef}
-          placeholder="Type your message here... Supports {name}, {store}, {sname} or {{first_name}}, {{store_name}}..."
+          placeholder="Type your message here... Supports {{first_name}}, {{store_name}}, {{niche}}, {{pain_point}}, {{brand}}..."
           value={body}
           onChange={(e) => onBodyChange(e.target.value)}
-          className="min-h-[150px] resize-none bg-background"
+          className="min-h-[160px] resize-none bg-background/30 border-muted/80 transition-all duration-200 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-xl text-xs sm:text-sm leading-relaxed"
         />
         <div className="flex flex-wrap items-center gap-1.5 pt-1 select-none">
-          <span className="text-[10px] text-muted-foreground mr-1">Insert variable:</span>
-          {[
-            { tag: '{{first_name}}' },
-            { tag: '{{store_name}}' },
-            { tag: '{{niche}}' },
-            { tag: '{{pain_point}}' },
-            { tag: '{name}' },
-            { tag: '{store}' },
-            { tag: '{sname}' },
-            { tag: '{brand}' }
-          ].map(item => (
+          <span className="text-[10px] text-muted-foreground/70 font-mono mr-1">Variables:</span>
+          {variablesToDisplay.map(item => (
             <Badge
               key={item.tag}
               variant="secondary"
-              className="font-mono text-[9px] px-1.5 py-0.5 border border-border bg-card hover:bg-primary/10 hover:text-primary transition-all cursor-pointer"
+              className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card/50 hover:bg-primary/15 hover:text-primary hover:border-primary/20 transition-all cursor-pointer rounded"
               onClick={() => {
                 const textarea = bodyRef.current;
                 if (!textarea) return;
@@ -367,18 +440,18 @@ export function FastMailSend({
       </div>
 
       {/* Collapsible Outreach & Spam Settings Panel */}
-      <div className="border border-border/85 rounded-lg overflow-hidden bg-muted/10">
+      <div className="border border-border/80 rounded-xl overflow-hidden bg-muted/5 backdrop-blur-sm transition-all duration-300">
         <button
           type="button"
           onClick={() => setIsSettingsOpen(prev => !prev)}
-          className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/20 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/10 transition-colors"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <Settings className="h-4 w-4 text-primary animate-spin-slow" />
-            <span className="text-xs font-semibold">Outreach &amp; Anti-Spam Settings</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground/80">Outreach &amp; Anti-Spam Settings</span>
             {(((cc && cc.trim()) || (bcc && bcc.trim()) || (myInboxTo && myInboxTo.trim()) || enableRandomization)) && (
-              <Badge variant="secondary" className="text-[9px] scale-90 px-1 py-0 h-4 bg-primary/10 text-primary hover:bg-primary/20 border-none font-normal">
-                Active
+              <Badge variant="secondary" className="text-[9px] scale-95 px-2 py-0 h-4 bg-primary/10 text-primary border-none font-semibold">
+                Active Settings
               </Badge>
             )}
           </div>
@@ -390,7 +463,7 @@ export function FastMailSend({
         </button>
 
         {isSettingsOpen && (
-          <div className="px-4 pb-4 pt-2 border-t border-border/40 space-y-4 text-xs animate-in fade-in slide-in-from-top-1 duration-150">
+          <div className="px-4 pb-4 pt-2 border-t border-border/20 space-y-4 text-xs animate-in fade-in slide-in-from-top-1 duration-150">
             {/* Row 1: Identity & My Inbox */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -401,7 +474,7 @@ export function FastMailSend({
                   placeholder="e.g. Hostinger / John Doe"
                   value={userName}
                   onChange={(e) => onUserNameChange(e.target.value)}
-                  className="bg-background h-8 text-xs border-muted/80 focus:border-primary"
+                  className="bg-background/40 h-8 text-xs border-muted/80 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-lg"
                 />
               </div>
 
@@ -409,7 +482,7 @@ export function FastMailSend({
                 <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
                   To (My Inbox / Send to Self)
                   {myInboxTo && myInboxTo.trim() && (
-                    <Badge variant="outline" className="text-[8px] h-3.5 px-1 border-emerald-500/30 text-emerald-500 bg-emerald-500/5 font-normal">
+                    <Badge variant="outline" className="text-[8px] h-3.5 px-1.5 border-emerald-500/30 text-emerald-500 bg-emerald-500/5 font-semibold">
                       Rerouting Active
                     </Badge>
                   )}
@@ -418,7 +491,7 @@ export function FastMailSend({
                   placeholder="your.inbox@example.com"
                   value={myInboxTo}
                   onChange={(e) => onMyInboxToChange(e.target.value)}
-                  className="bg-background h-8 text-xs border-muted/80 focus:border-primary"
+                  className="bg-background/40 h-8 text-xs border-muted/80 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-lg"
                 />
                 <p className="text-[9px] text-muted-foreground/80 leading-tight">
                   If filled, emails are sent TO this inbox, with target customers moved to BCC.
@@ -437,7 +510,7 @@ export function FastMailSend({
                   placeholder="cc@example.com"
                   value={cc}
                   onChange={(e) => onCcChange(e.target.value)}
-                  className="bg-background h-8 text-xs border-muted/80 focus:border-primary"
+                  className="bg-background/40 h-8 text-xs border-muted/80 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-lg"
                 />
               </div>
 
@@ -450,7 +523,7 @@ export function FastMailSend({
                   placeholder="bcc@example.com"
                   value={bcc}
                   onChange={(e) => onBccChange(e.target.value)}
-                  className="bg-background h-8 text-xs border-muted/80 focus:border-primary"
+                  className="bg-background/40 h-8 text-xs border-muted/80 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-lg"
                 />
               </div>
             </div>
@@ -464,14 +537,14 @@ export function FastMailSend({
                 <select
                   value={ccRoutingMode}
                   onChange={(e) => onCcRoutingModeChange(e.target.value as 'reroute' | 'normal')}
-                  className="w-full bg-background border border-muted/80 rounded-md h-8 text-xs px-2 focus:ring-1 focus:ring-primary focus:outline-none"
+                  className="w-full bg-background border border-muted/80 rounded-lg h-8 text-xs px-2 focus:ring-2 focus:ring-primary/10 focus:outline-none"
                 >
                   <option value="reroute">Route CC to BCC (Private Copy - Recommended)</option>
                   <option value="normal">Keep CC visible (Public Copy)</option>
                 </select>
               </div>
 
-              <div className="space-y-2 flex flex-col justify-end">
+              <div className="space-y-3 flex flex-col justify-end">
                 <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-medium text-foreground">
                   <input
                     type="checkbox"
@@ -481,9 +554,15 @@ export function FastMailSend({
                   />
                   <span>Bypass Spam Tracking (Randomization)</span>
                 </label>
-                <p className="text-[9px] text-muted-foreground/80 leading-normal">
-                  Shuffles URL parameters, randomizes space encoding (+ vs %20), and injects zero-width whitespace to disrupt automated email fingerprints.
-                </p>
+                <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-medium text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={autoScroll}
+                    onChange={(e) => onAutoScrollChange(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary accent-primary"
+                  />
+                  <span>Auto-scroll to Generated Emails</span>
+                </label>
               </div>
             </div>
 
@@ -508,7 +587,7 @@ export function FastMailSend({
                     if (!bccBatchSize || bccBatchSize < 2) onBccBatchSizeChange(2);
                     else if (bccBatchSize > 100) onBccBatchSizeChange(100);
                   }}
-                  className="bg-background h-8 text-xs border-muted/80 focus:border-primary"
+                  className="bg-background/40 h-8 text-xs border-muted/80 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-lg"
                 />
                 <p className="text-[9px] text-muted-foreground/80 leading-tight">
                   Sets the number of comma-separated recipients in the BCC field of each batch. Max 100 recommended.
@@ -534,7 +613,7 @@ export function FastMailSend({
                     if (!bccBatchOpenCount || bccBatchOpenCount < 1) onBccBatchOpenCountChange(1);
                     else if (bccBatchOpenCount > 20) onBccBatchOpenCountChange(20);
                   }}
-                  className="bg-background h-8 text-xs border-muted/80 focus:border-primary"
+                  className="bg-background/40 h-8 text-xs border-muted/80 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-lg"
                 />
                 <p className="text-[9px] text-muted-foreground/80 leading-tight">
                   How many separate BCC email windows to open sequentially in a single automated loop.
@@ -545,75 +624,83 @@ export function FastMailSend({
         )}
       </div>
 
-      <div className="flex gap-2">
-        <Button onClick={handleGenerate} disabled={isUploading} className="flex-1 peak-gradient-bg text-white shadow-md border-none hover:opacity-90">
+      <div className="flex gap-2.5">
+        <Button 
+          onClick={handleGenerate} 
+          disabled={isUploading} 
+          className="flex-1 h-11 text-xs sm:text-sm font-bold uppercase tracking-wider peak-gradient-bg text-white shadow-lg border-none hover:opacity-95 hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 rounded-xl"
+        >
           {isUploading ? (
             <>
               <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              Processing...
+              Processing List...
             </>
           ) : (
             <>
               <Send className="mr-2 h-4 w-4" />
-              Generate Emails
+              Compile &amp; Generate Emails
             </>
           )}
         </Button>
         <Button
           variant="outline"
           onClick={() => setIsTestDialogOpen(true)}
-          className="px-3 border-primary/30 text-primary hover:bg-primary/10"
+          className="px-4 h-11 rounded-xl border-primary/20 text-primary hover:bg-primary/5 hover:text-primary transition-all duration-200"
           title="Send Test Email"
         >
-          <FlaskConical className="h-4 w-4" />
+          <FlaskConical className="h-4 w-4 animate-float-slow" />
         </Button>
       </div>
-      <p className="text-[10px] text-muted-foreground text-center -mt-2">Ctrl+Enter to generate</p>
+      <p className="text-[9px] font-mono text-muted-foreground text-center -mt-2">Pro tip: Press <kbd className="bg-muted px-1.5 py-0.5 rounded border border-border">Ctrl+Enter</kbd> to compile instantly</p>
 
       {/* Save Dialog */}
       <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl border border-primary/20 bg-slate-950/95 backdrop-blur-xl shadow-2xl p-6 animate-in zoom-in-95 duration-200">
           <DialogHeader>
-            <DialogTitle>Save Template</DialogTitle>
+            <DialogTitle className="text-lg font-bold text-foreground">Save Campaign Template</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-4">
             <Input
-              placeholder="Template Name"
+              placeholder="e.g. Hostinger Warm Outreach"
               value={newTemplateName}
               onChange={(e) => setNewTemplateName(e.target.value)}
+              className="rounded-xl border-muted bg-background/50 text-xs sm:text-sm h-10 transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
             />
-            <Button onClick={handleSave} className="w-full">Save</Button>
+            <Button onClick={handleSave} className="w-full h-10 font-bold uppercase tracking-wider peak-gradient-bg text-white border-none rounded-xl">Save Template</Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Test Email Dialog */}
       <Dialog open={isTestDialogOpen} onOpenChange={setIsTestDialogOpen}>
-        <DialogContent className="sm:max-w-md top-[8%] translate-y-0 data-[state=open]:slide-in-from-top-[4%] data-[state=closed]:slide-out-to-top-[4%]">
+        <DialogContent className="sm:max-w-md top-[8%] translate-y-0 data-[state=open]:slide-in-from-top-[4%] data-[state=closed]:slide-out-to-top-[4%] border border-primary/20 bg-slate-950/95 backdrop-blur-xl rounded-2xl shadow-2xl p-6">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FlaskConical className="h-5 w-5 text-primary" />
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-foreground">
+              <FlaskConical className="h-5 w-5 text-primary animate-pulse" />
               Send Test Email
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 pt-4">
+          <div className="space-y-4 pt-3 text-xs">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Test Recipient Email</label>
+              <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Test Recipient Email</label>
               <Input
                 type="email"
                 placeholder="your.email@example.com"
                 value={testRecipient}
                 onChange={(e) => setTestRecipient(e.target.value)}
+                className="rounded-xl border-muted bg-background/50 h-10 transition-all focus:border-primary focus:ring-2 focus:ring-primary/10 text-xs sm:text-sm"
               />
             </div>
-            <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2 text-xs">
-              <p className="font-medium text-sm">Live Preview:</p>
-              <p className="text-muted-foreground"><strong>Subject:</strong> {testPreview.subject || '(empty)'}</p>
-              <p className="text-muted-foreground whitespace-pre-wrap max-h-28 overflow-auto"><strong>Body:</strong> {testPreview.body || '(empty)'}</p>
-              <p className="text-[10px] text-success mt-1">Variables are replaced with values from the test recipient above.</p>
+            <div className="rounded-xl border border-border/80 bg-background/40 p-4 space-y-2.5 font-mono text-[11px] leading-relaxed shadow-inner">
+              <p className="font-bold text-xs text-primary uppercase tracking-widest">Live Sandbox Preview</p>
+              <p className="text-muted-foreground"><strong className="text-foreground">Subject:</strong> {testPreview.subject || '(empty)'}</p>
+              <p className="text-muted-foreground whitespace-pre-wrap max-h-32 overflow-y-auto">
+                <strong className="text-foreground">Body:</strong> {testPreview.body || '(empty)'}
+              </p>
+              <p className="text-[9px] text-emerald-400 font-semibold mt-2">✨ Variables are dynamically replaced using the recipient above.</p>
             </div>
             <Button
-              className="w-full"
+              className="w-full h-11 font-bold uppercase tracking-wider peak-gradient-bg text-white border-none rounded-xl shadow-md"
               disabled={!testRecipient.trim()}
               onClick={() => {
                 const link = buildMailtoLink({
@@ -632,12 +719,11 @@ export function FastMailSend({
               }}
             >
               <Send className="mr-2 h-4 w-4" />
-              Send Test
+              Dispatch Test Draft
             </Button>
           </div>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }

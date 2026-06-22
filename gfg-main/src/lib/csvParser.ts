@@ -85,11 +85,36 @@ export function parseCSV(text: string): ParsedCSV {
   }
 
   // First row is headers
-  const rawHeaders = rows[0].map(h => h.trim().replace(/^["']|["']$/g, ''));
-  const dataRows = rows.slice(1);
+  let rawHeaders = rows[0].map(h => h.trim().replace(/^["']|["']$/g, ''));
+  let dataRows = rows.slice(1);
+
+  // If any cell in the first row is a valid email, then the first row is data (headerless CSV).
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const isHeaderless = rawHeaders.some(cell => emailRegex.test(cell));
+
+  if (isHeaderless) {
+    dataRows = rows; // The first row is also data
+    rawHeaders = rows[0].map((cell, idx) => {
+      if (emailRegex.test(cell)) {
+        return 'Email';
+      }
+      return `Column_${idx + 1}`;
+    });
+  }
 
   // Filter out empty headers and make sure they are unique
-  const headers = rawHeaders.map((header, idx) => header || `Column_${idx + 1}`);
+  const seenHeaders = new Set<string>();
+  const headers = rawHeaders.map((header, idx) => {
+    const base = header || `Column_${idx + 1}`;
+    let name = base;
+    let counter = 1;
+    while (seenHeaders.has(name)) {
+      name = `${base}_${counter}`;
+      counter++;
+    }
+    seenHeaders.add(name);
+    return name;
+  });
 
   const formattedRows = dataRows.map(row => {
     const rowObj: Record<string, string> = {};
@@ -111,6 +136,7 @@ export function suggestFieldMapping(header: string): string {
   // Target: email
   if (
     norm === 'email' || 
+    norm.startsWith('email') ||
     norm === 'emailaddress' || 
     norm === 'contactemail' || 
     norm === 'mail' || 
@@ -127,7 +153,9 @@ export function suggestFieldMapping(header: string): string {
     norm === 'name' || 
     norm === 'first' || 
     norm === 'contactname' || 
-    norm === 'leadname'
+    norm === 'leadname' ||
+    norm.startsWith('firstname') ||
+    norm.startsWith('name')
   ) {
     return 'first_name';
   }
@@ -143,7 +171,12 @@ export function suggestFieldMapping(header: string): string {
     norm === 'website' || 
     norm === 'domain' || 
     norm === 'company' || 
-    norm === 'companyname'
+    norm === 'companyname' ||
+    norm.startsWith('store') ||
+    norm.startsWith('shop') ||
+    norm.startsWith('brand') ||
+    norm.startsWith('website') ||
+    norm.startsWith('company')
   ) {
     return 'store_name';
   }
@@ -154,7 +187,9 @@ export function suggestFieldMapping(header: string): string {
     norm === 'industry' || 
     norm === 'category' || 
     norm === 'vertical' || 
-    norm === 'tag'
+    norm === 'tag' ||
+    norm.startsWith('niche') ||
+    norm.startsWith('industry')
   ) {
     return 'niche';
   }
@@ -165,10 +200,65 @@ export function suggestFieldMapping(header: string): string {
     norm === 'pain' || 
     norm === 'problem' || 
     norm === 'issue' || 
-    norm === 'offer'
+    norm === 'offer' ||
+    norm.startsWith('painpoint') ||
+    norm.startsWith('problem')
   ) {
     return 'pain_point';
   }
 
   return '';
+}
+
+/**
+ * Converts an arbitrary CSV header string into a safe, normalized key
+ * suitable for use as a template variable: e.g. "Store URL" → "store_url"
+ */
+export function normalizeHeaderKey(header: string): string {
+  return header
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')   // Replace non-alphanumeric runs with underscore
+    .replace(/^_+|_+$/g, '');       // Trim leading/trailing underscores
+}
+
+/**
+ * Cleanly extracts all emails and any URL/domain name from a cell value.
+ */
+export function extractEmailsAndUrlsFromCell(cellValue: string): { emails: string[]; url: string } {
+  const trimmed = cellValue.trim();
+  if (!trimmed) {
+    return { emails: [], url: '' };
+  }
+
+  // Extract all email addresses from the cell using regex
+  const emailMatches = trimmed.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+  let emailCandidates = Array.from(new Set(emailMatches.map(e => e.trim().toLowerCase())));
+
+  // If no valid email formats found, fallback to colon/semicolon split for safety
+  if (emailCandidates.length === 0) {
+    emailCandidates = trimmed.split(/[:;]/).map(e => e.trim().toLowerCase()).filter(Boolean);
+  }
+
+  // Extract any URL or domain-like string (e.g. https://... or www.... or domain.com)
+  const urlRegex = /(https?:\/\/[^\s;:]+)/i;
+  const wwwRegex = /(www\.[^\s;:]+\.[^\s;:]+)/i;
+  const urlMatch = trimmed.match(urlRegex) || trimmed.match(wwwRegex);
+  let extractedUrl = urlMatch ? urlMatch[0].trim() : '';
+
+  if (!extractedUrl) {
+    // Look for any word that contains a dot, does not contain @, and doesn't end with a dot
+    const tokens = trimmed.split(/[\s;:•]+/);
+    for (const token of tokens) {
+      const t = token.trim();
+      if (t.includes('.') && !t.includes('@') && t.length > 4 && !t.endsWith('.')) {
+        if (/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(t)) {
+          extractedUrl = t;
+          break;
+        }
+      }
+    }
+  }
+
+  return { emails: emailCandidates, url: extractedUrl };
 }

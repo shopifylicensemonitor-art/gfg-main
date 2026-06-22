@@ -22,7 +22,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 router.get('/lists', async (_req, res) => {
   try {
     const db = await getDb();
-    const lists = db.prepare(`
+    const lists = await db.prepare(`
       SELECT list_name, COUNT(*) as count
       FROM contacts
       GROUP BY list_name
@@ -38,14 +38,93 @@ router.get('/lists', async (_req, res) => {
 router.get('/:listName', async (req, res) => {
   try {
     const db = await getDb();
-    const contacts = db.prepare(
+    const contacts = await db.prepare(
       'SELECT * FROM contacts WHERE list_name = ? ORDER BY id'
     ).all(req.params.listName);
-    res.json(contacts);
+
+    const parsedContacts = contacts.map(c => {
+      try {
+        c.fields = c.fields ? JSON.parse(c.fields) : {};
+      } catch (_) {
+        c.fields = {};
+      }
+      return c;
+    });
+
+    res.json(parsedContacts);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+/** Simple CSV parser helper respecting quoted commas */
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/);
+  const rows = [];
+  
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const cells = [];
+    let cell = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        cells.push(cell.trim().replace(/^["']|["']$/g, ''));
+        cell = '';
+      } else {
+        cell += char;
+      }
+    }
+    cells.push(cell.trim().replace(/^["']|["']$/g, ''));
+    rows.push(cells);
+  }
+  return rows;
+}
+
+/** Normalize header to alphanumeric with underscores */
+function normalizeHeaderKey(header) {
+  return header
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+/** Extract multiple emails and a single URL from cell value */
+function extractEmailsAndUrlsFromCell(cellValue) {
+  const trimmed = cellValue.trim();
+  if (!trimmed) return { emails: [], url: '' };
+  
+  const emailMatches = trimmed.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+  let emailCandidates = Array.from(new Set(emailMatches.map(e => e.trim().toLowerCase())));
+  
+  if (emailCandidates.length === 0) {
+    emailCandidates = trimmed.split(/[:;]/).map(e => e.trim().toLowerCase()).filter(Boolean);
+  }
+  
+  const urlRegex = /(https?:\/\/[^\s;:]+)/i;
+  const wwwRegex = /(www\.[^\s;:]+\.[^\s;:]+)/i;
+  const urlMatch = trimmed.match(urlRegex) || trimmed.match(wwwRegex);
+  let extractedUrl = urlMatch ? urlMatch[0].trim() : '';
+  
+  if (!extractedUrl) {
+    const tokens = trimmed.split(/[\s;:•]+/);
+    for (const token of tokens) {
+      const t = token.trim();
+      if (t.includes('.') && !t.includes('@') && t.length > 4 && !t.endsWith('.')) {
+        if (/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(t)) {
+          extractedUrl = t;
+          break;
+        }
+      }
+    }
+  }
+  return { emails: emailCandidates, url: extractedUrl };
+}
 
 /** Upload a CSV file of contacts. */
 router.post('/upload', upload.single('file'), async (req, res) => {
@@ -56,48 +135,86 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   try {
     const db = await getDb();
     const csv = req.file.buffer.toString('utf-8');
-    const lines = csv.split(/\r?\n/).filter(l => l.trim());
-
-    // Find the email column (handle headers)
-    let emailColIndex = 0;
-    const header = lines[0].toLowerCase();
-    if (header.includes('email')) {
-      const cols = lines[0].split(',');
-      emailColIndex = cols.findIndex(c => c.trim().toLowerCase().includes('email'));
-      lines.shift(); // Remove header row
+    const rows = parseCSV(csv);
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Empty CSV file.' });
     }
+
+    const headers = rows[0];
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const isHeaderless = headers.some(cell => emailRegex.test(cell.trim()));
+
+    let finalHeaders = [];
+    let dataRows = [];
+
+    if (isHeaderless) {
+      dataRows = rows;
+      finalHeaders = headers.map((cell, idx) => {
+        if (emailRegex.test(cell.trim())) return 'email';
+        return `column_${idx + 1}`;
+      });
+    } else {
+      dataRows = rows.slice(1);
+      finalHeaders = headers.map(h => normalizeHeaderKey(h));
+    }
+
+    const emailColIndex = finalHeaders.findIndex(h => h === 'email' || h.includes('email'));
+    const safeEmailColIndex = emailColIndex >= 0 ? emailColIndex : 0;
 
     let added = 0;
     let skipped = 0;
 
-    const insertBatch = db.transaction(() => {
-      for (const line of lines) {
-        const cols = line.split(',');
-        const email = (cols[emailColIndex] || '').trim().replace(/"/g, '');
-
-        if (!email || !email.includes('@')) {
+    const insertBatch = db.transaction(async (txDb) => {
+      for (const row of dataRows) {
+        const emailCell = (row[safeEmailColIndex] || '').trim();
+        if (!emailCell) {
           skipped++;
           continue;
         }
 
-        // Skip duplicates within the same list
-        const existing = db.prepare(
-          'SELECT id FROM contacts WHERE list_name = ? AND email = ?'
-        ).get(listName, email);
-
-        if (existing) {
+        const { emails, url } = extractEmailsAndUrlsFromCell(emailCell);
+        if (emails.length === 0) {
           skipped++;
           continue;
         }
 
-        db.prepare(
-          'INSERT INTO contacts (list_name, email) VALUES (?, ?)'
-        ).run(listName, email);
-        added++;
+        // Build key-value fields object
+        const fields = {};
+        finalHeaders.forEach((header, idx) => {
+          if (idx !== safeEmailColIndex) {
+            fields[header] = row[idx] || '';
+          }
+        });
+
+        if (url) {
+          fields['store_url'] = url;
+          if (!fields['store_name']) {
+            fields['store_name'] = url;
+          }
+        }
+
+        const fieldsJson = JSON.stringify(fields);
+
+        for (const email of emails) {
+          // Skip duplicates within the same list
+          const existing = await txDb.prepare(
+            'SELECT id FROM contacts WHERE list_name = ? AND email = ?'
+          ).get(listName, email);
+
+          if (existing) {
+            skipped++;
+            continue;
+          }
+
+          await txDb.prepare(
+            'INSERT INTO contacts (list_name, email, fields) VALUES (?, ?, ?)'
+          ).run(listName, email, fieldsJson);
+          added++;
+        }
       }
     });
 
-    insertBatch();
+    await insertBatch();
 
     res.json({
       success: true,
@@ -119,7 +236,7 @@ router.post('/', async (req, res) => {
 
   try {
     const db = await getDb();
-    const existing = db.prepare(
+    const existing = await db.prepare(
       'SELECT id FROM contacts WHERE list_name = ? AND email = ?'
     ).get(list_name, email);
 
@@ -127,7 +244,7 @@ router.post('/', async (req, res) => {
       return res.status(409).json({ error: 'Contact already exists in this list.' });
     }
 
-    const result = db.prepare(
+    const result = await db.prepare(
       'INSERT INTO contacts (list_name, email) VALUES (?, ?)'
     ).run(list_name, email);
     res.json({ success: true, id: result.lastInsertRowid });
@@ -140,7 +257,7 @@ router.post('/', async (req, res) => {
 router.delete('/:listName', async (req, res) => {
   try {
     const db = await getDb();
-    const result = db.prepare('DELETE FROM contacts WHERE list_name = ?').run(req.params.listName);
+    const result = await db.prepare('DELETE FROM contacts WHERE list_name = ?').run(req.params.listName);
     res.json({ success: true, deleted: result.changes });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -151,7 +268,7 @@ router.delete('/:listName', async (req, res) => {
 router.delete('/:listName/:id', async (req, res) => {
   try {
     const db = await getDb();
-    db.prepare('DELETE FROM contacts WHERE id = ? AND list_name = ?')
+    await db.prepare('DELETE FROM contacts WHERE id = ? AND list_name = ?')
       .run(req.params.id, req.params.listName);
     res.json({ success: true });
   } catch (err) {

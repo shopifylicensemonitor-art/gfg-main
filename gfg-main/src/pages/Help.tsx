@@ -15,9 +15,9 @@ export default function Help() {
         <AppShell>
             <SEO
                 title="Full Guide & FAQ - Bulk Email Outreach Tips"
-                description="Learn how to master Peakconix Sender. Read step-by-step guides on bulk email uploads, custom variable replacements, performance optimization, keyboard shortcuts, and FAQs."
+                description="Learn how to master Peak Xender. Read step-by-step guides on bulk email uploads, custom variable replacements, performance optimization, keyboard shortcuts, and FAQs."
                 keywords={[
-                  'Peakconix Sender guide',
+                  'Peak Xender guide',
                   'bulk email outreach tips',
                   'cold email FAQ',
                   'email outreach variable help',
@@ -97,7 +97,7 @@ export default function Help() {
             <div className="space-y-10">
                 {/* Back & Title */}
                 <div className="flex flex-col gap-2">
-                    <Link to="/">
+                    <Link to="/send">
                         <Button variant="ghost" size="sm" className="w-fit -ml-2 text-muted-foreground hover:text-foreground">
                             <ArrowLeft className="mr-2 h-4 w-4" />
                             Back to Dashboard
@@ -106,7 +106,7 @@ export default function Help() {
                     <h1 className="text-3xl font-black tracking-tighter sm:text-4xl mt-2">
                         Complete User Guide
                     </h1>
-                    <p className="text-muted-foreground">Everything you need to know about using Peakconix Sender v3.4.0</p>
+                    <p className="text-muted-foreground">Everything you need to know about using Peak Xender v3.4.0</p>
                 </div>
 
                 {/* Quick Navigation */}
@@ -181,7 +181,7 @@ export default function Help() {
                             </ol>
                             <p className="text-xs text-amber-600 flex items-center gap-2">
                                 <AlertTriangle className="h-3 w-3 shrink-0" />
-                                Peakconix uses <code>mailto:</code> links. You must have a mail client configured (Gmail, Outlook, Apple Mail, etc).
+                                Peak Xender uses <code>mailto:</code> links. You must have a mail client configured (Gmail, Outlook, Apple Mail, etc).
                             </p>
                         </CardContent>
                     </Card>
@@ -371,7 +371,7 @@ export default function Help() {
                                 <Shield className="h-5 w-5 text-primary" />
                                 <CardTitle>Install as App (PWA)</CardTitle>
                             </div>
-                            <CardDescription>Use Peakconix Sender like a native app</CardDescription>
+                            <CardDescription>Use Peak Xender like a native app</CardDescription>
                         </CardHeader>
                         <CardContent className="pt-4 text-sm text-muted-foreground space-y-3">
                             <p>When your browser supports it, a green <Badge variant="secondary">Install App</Badge> button appears in the header.</p>
@@ -419,7 +419,7 @@ export default function Help() {
                             </div>
                         </CardHeader>
                         <CardContent className="pt-4 text-sm text-muted-foreground space-y-3">
-                            <p>Peakconix Sender is designed to remain fast even with large lists:</p>
+                            <p>Peak Xender is designed to remain fast even with large lists:</p>
                             <ul className="list-disc list-inside space-y-1">
                                 <li><strong>Virtualized List:</strong> Only visible rows are drawn, so lists of up to 50,000 emails scroll smoothly.</li>
                                 <li><strong>Background Parsing:</strong> Email files are parsed in the background to prevent page freezes.</li>
@@ -460,7 +460,7 @@ export default function Help() {
                                 </div>
                                 <div>
                                     <h4 className="font-bold">Sent status resets</h4>
-                                    <p className="text-muted-foreground">Clearing browser data or using incognito resets all data. Peakconix stores everything locally.</p>
+                                    <p className="text-muted-foreground">Clearing browser data or using incognito resets all data. Peak Xender stores everything locally.</p>
                                 </div>
                             </div>
                         </CardContent>

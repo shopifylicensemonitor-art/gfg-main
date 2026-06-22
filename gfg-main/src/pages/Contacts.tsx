@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api, type ContactListInfo, type Contact } from '../api';
 import { AppShell } from '@/components/AppShell';
 import { SEO } from '@/components/SEO';
@@ -30,7 +30,7 @@ export default function Contacts({ requirePin }: ContactsProps) {
   // Filter Query
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  const loadLists = async () => {
+  const loadLists = useCallback(async () => {
     setLoadingLists(true);
     try {
       const data = await api.getContactLists();
@@ -47,7 +47,7 @@ export default function Contacts({ requirePin }: ContactsProps) {
     } finally {
       setLoadingLists(false);
     }
-  };
+  }, [selectedList]);
 
   const loadContacts = async (listName: string) => {
     setLoadingContacts(true);
@@ -67,7 +67,7 @@ export default function Contacts({ requirePin }: ContactsProps) {
 
   useEffect(() => {
     loadLists();
-  }, []);
+  }, [loadLists]);
 
   useEffect(() => {
     if (selectedList) {
@@ -246,7 +246,7 @@ export default function Contacts({ requirePin }: ContactsProps) {
   return (
     <AppShell>
       <SEO
-        title="Manage Contact Lists - Peakconix"
+        title="Manage Contact Lists - Peak Xender"
         description="Upload spreadsheets, filter duplicate emails, and configure target list divisions for cold email sending."
       />
       <div className="space-y-6">

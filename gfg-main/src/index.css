@@ -25,7 +25,7 @@ html, body {
   padding-right: var(--safe-area-right);
 }
 
-/* ── Peakconix Design System: Slate & Indigo ────────────── */
+/* ── Peak Xender Design System: Slate & Indigo ────────────── */
 
 @layer base {
   :root {
@@ -266,18 +266,7 @@ html, body {
 }
 
 .scrolling-watermark::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='150' viewBox='0 0 300 150'%3E%3Ctext x='15' y='90' font-size='22' font-weight='900' font-family='system-ui, sans-serif' fill='rgba(142, 142, 142, 0.022)' transform='rotate(-20, 15, 90)'%3EPEAKCONIX%3C/text%3E%3C/svg%3E");
-  background-repeat: repeat;
-  animation: diagonal-scroll 120s linear infinite;
-}
-
-.dark .scrolling-watermark::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='150' viewBox='0 0 300 150'%3E%3Ctext x='15' y='90' font-size='22' font-weight='900' font-family='system-ui, sans-serif' fill='rgba(255, 255, 255, 0.011)' transform='rotate(-20, 15, 90)'%3EPEAKCONIX%3C/text%3E%3C/svg%3E");
+  display: none !important;
 }
 
 /* Disable scrolling watermark animation and hide background on mobile and reduced-motion devices to prevent GPU rendering glitches, static line artifacts, and heavy CPU drain */
@@ -292,4 +281,98 @@ html, body {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
+}
+
+/* ── Premium $1M SaaS UI Animations & Styles ────────────────── */
+
+@keyframes row-entrance {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-row-entrance {
+  animation: row-entrance 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(99, 102, 241, 0.15), 0 0 15px rgba(99, 102, 241, 0.05);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(99, 102, 241, 0.35), 0 0 25px rgba(99, 102, 241, 0.15);
+  }
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 3s infinite ease-in-out;
+}
+
+@keyframes bounce-spring {
+  0% { transform: scale(0.4); opacity: 0; }
+  65% { transform: scale(1.12); }
+  85% { transform: scale(0.95); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-bounce-spring {
+  animation: bounce-spring 0.38s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.animate-float-slow {
+  animation: float-slow 4s ease-in-out infinite;
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 12s linear infinite;
+}
+
+/* Glassmorphism premium highlights */
+.glass-glow-card {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-glow-card:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 12px 40px 0 rgba(99, 102, 241, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Premium input styling */
+.premium-input {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.premium-input:focus {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+/* Scroll Reveal Animations */
+.reveal-section {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+.reveal-section.reveal-active {
+  opacity: 1;
+  transform: translateY(0);
 }

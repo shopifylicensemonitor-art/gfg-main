@@ -265,7 +265,7 @@ export default function Accounts({ requirePin }: AccountsProps) {
   return (
     <AppShell>
       <SEO
-        title="Manage Senders - Peakconix"
+        title="Manage Senders - Peak Xender"
         description="Connect and configure rotating Gmail and SMTP accounts with automated daily caps and name personalization."
       />
       <div className="space-y-6">

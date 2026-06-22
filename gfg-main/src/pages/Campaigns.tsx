@@ -4,6 +4,7 @@ import { AppShell } from '@/components/AppShell';
 import { SEO } from '@/components/SEO';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import { 
   Send, Plus, Trash2, Play, Pause, FileText, Info,
@@ -27,6 +28,12 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
   const [showForm, setShowForm] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
 
+  // Spintax & Preview States
+  const [listTokens, setListTokens] = useState<string[]>([]);
+  const [previewItems, setPreviewItems] = useState<{ subject: string; body_html: string; recipient_email: string; sender_email: string | null }[]>([]);
+  const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
+  const [loadingPreview, setLoadingPreview] = useState<boolean>(false);
+
   // Form State
   const [name, setName] = useState<string>('');
   const [selectedList, setSelectedList] = useState<string>('');
@@ -43,6 +50,40 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
   const [variations, setVariations] = useState<{ subject: string; body_html: string }[]>([
     { subject: '', body_html: '' }
   ]);
+
+  useEffect(() => {
+    if (selectedList) {
+      api.getContacts(selectedList).then(contacts => {
+        if (contacts.length > 0 && contacts[0].fields) {
+          const keys = Object.keys(contacts[0].fields);
+          setListTokens(keys);
+        } else {
+          setListTokens([]);
+        }
+      }).catch(() => {
+        setListTokens([]);
+      });
+    } else {
+      setListTokens([]);
+    }
+  }, [selectedList]);
+
+  const handlePreview = async (id: number) => {
+    setLoadingPreview(true);
+    try {
+      const data = await api.previewCampaign(id, 3);
+      setPreviewItems(data);
+      setIsPreviewOpen(true);
+    } catch (e: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Failed to load preview',
+        description: e.message || 'Could not fetch resolved templates.'
+      });
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -300,7 +341,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
   return (
     <AppShell>
       <SEO
-        title="Campaigns Scheduler - Peakconix"
+        title="Campaigns Scheduler - Peak Xender"
         description="Compose bulk email sequences, set time schedules, adjust rotation speeds, and launch cold outreach."
       />
       <div className="space-y-6">
@@ -378,6 +419,42 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                   ))}
                 </select>
               </div>
+
+              {/* Dynamic Tokens & Spintax Helper */}
+              {selectedList && (
+                <div className="bg-primary/[0.03] border border-primary/10 rounded-xl p-3.5 space-y-3.5">
+                  <div className="flex flex-col gap-1">
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5" /> Available Tokens for Personalization
+                    </h4>
+                    <p className="text-[10px] text-muted-foreground">
+                      Use double curly braces in your subject or body. They will be auto-replaced for each contact.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <span className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card rounded-md">
+                      {"{{email}}"}
+                    </span>
+                    <span className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card rounded-md">
+                      {"{{date}}"}
+                    </span>
+                    {listTokens.map(token => (
+                      <span key={token} className="font-mono text-[9px] px-2 py-0.5 border border-primary/20 text-primary bg-card rounded-md">
+                        {`{{${token}}}`}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="pt-2 border-t border-primary/10 flex flex-col gap-1">
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-primary">Spintax Content Rotation Syntax</h4>
+                    <p className="text-[10px] text-muted-foreground">
+                      Rotate phrases using <code>{"{phrase1|phrase2}"}</code> format to ensure outgoing emails are unique. Supports nested syntax.
+                    </p>
+                    <div className="text-[10px] bg-muted/60 p-2.5 rounded-lg font-mono text-muted-foreground">
+                      Example: <code>{"{Hi|Hello} {{first_name}}, {I was checking out|I noticed} your store..."}</code>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Content Delivery Mode Toggles */}
               <div className="space-y-2">
@@ -711,6 +788,16 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                         <Button
                           size="sm"
                           variant="outline"
+                          onClick={() => handlePreview(c.id)}
+                          disabled={loadingPreview}
+                          className="h-8 gap-1 rounded-lg text-xs font-semibold"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          <span>Preview</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
                           onClick={() => handleDelete(c.id)}
                           className="h-8 gap-1 rounded-lg text-xs font-semibold hover:bg-destructive/10 hover:text-destructive border-destructive/20 text-destructive/90"
                         >
@@ -726,6 +813,53 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
             </CardContent>
           </Card>
       </div>
+
+      {/* Campaign Preview Dialog */}
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+        <DialogContent className="max-w-3xl bg-background border-border p-6 rounded-2xl animate-in zoom-in-95 duration-200">
+          <DialogHeader className="pb-3 border-b border-border/40">
+            <DialogTitle className="flex items-center gap-2 text-lg font-black tracking-tight">
+              <Zap className="h-5 w-5 text-primary" />
+              <span>Email Execution Preview (Resolved Spintax &amp; Tokens)</span>
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Below are 3 sample rendered outputs demonstrating how variables and rotation syntax resolve for individual leads.
+            </p>
+          </DialogHeader>
+
+          <div className="space-y-6 pt-4 max-h-[65vh] overflow-y-auto pr-1">
+            {previewItems.map((item, idx) => (
+              <div key={idx} className="border border-border/60 bg-muted/5 rounded-xl overflow-hidden shadow-sm">
+                <div className="px-4 py-2.5 bg-muted/40 border-b border-border/40 grid grid-cols-2 gap-2 text-[10px] font-mono text-muted-foreground">
+                  <div>
+                    <span className="font-bold text-foreground">To: </span>
+                    <span>{item.recipient_email}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-bold text-foreground">From: </span>
+                    <span>{item.sender_email || 'Round-Robin Rotation'}</span>
+                  </div>
+                </div>
+
+                <div className="px-4 py-2.5 border-b border-border/20 text-xs font-bold text-foreground">
+                  <span className="text-muted-foreground font-mono mr-2">Subject:</span>
+                  {item.subject}
+                </div>
+
+                <div className="p-4 text-xs text-foreground bg-card overflow-x-auto min-h-[100px] leading-relaxed">
+                  <div dangerouslySetInnerHTML={{ __html: item.body_html || '<p class="text-muted-foreground italic">No HTML content provided.</p>' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-3 border-t border-border/40 flex justify-end">
+            <Button onClick={() => setIsPreviewOpen(false)} className="text-xs">
+              Close Preview
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

@@ -1,11 +1,11 @@
 /**
- * api.ts — Type-safe API client for MailFlow server connection.
+ * api.ts — Type-safe API client for Peak Xender server connection.
  *
  * Automatically handles dev vs prod baseUrl selection, sets the security PIN
  * headers from sessionStorage, and processes JSON responses.
  */
 
-const BASE_URL = import.meta.env.DEV ? 'http://localhost:3000' : '';
+const BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3000' : '');
 
 // ---------------------------------------------------------------------------
 // TypeScript Interfaces
@@ -37,6 +37,24 @@ export interface ContactListInfo {
   count: number;
 }
 
+export interface CampaignStep {
+  id?: number;
+  campaign_id?: number;
+  step_number: number;
+  subject: string;
+  body_html: string;
+  body_plain: string;
+  delay_seconds: number;
+}
+
+export interface CampaignRecipient {
+  recipient_email: string;
+  status: 'active' | 'replied' | 'unsubscribed' | 'completed';
+  current_step: number;
+  last_sent_at: string | null;
+  created_at: string;
+}
+
 export interface Campaign {
   id: number;
   name: string;
@@ -62,6 +80,7 @@ export interface Campaign {
   };
   total_opens?: number;
   total_clicks?: number;
+  steps?: CampaignStep[];
 }
 
 export interface QueueItem {
@@ -93,6 +112,8 @@ export interface LogItem {
   created_at: string;
   sender_email?: string;
   campaign_name?: string;
+  final_subject?: string;
+  final_body?: string;
 }
 
 export interface Template {
@@ -119,10 +140,10 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
     headers.set('Content-Type', 'application/json');
   }
 
-  // Inject PIN authorization from sessionStorage if present
-  const pin = sessionStorage.getItem('access_pin');
-  if (pin) {
-    headers.set('X-Access-Pin', pin);
+  // Inject JWT Bearer token from localStorage if present
+  const token = localStorage.getItem('auth_token');
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
   const res = await fetch(url, { ...options, headers });
@@ -153,20 +174,6 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
 // ---------------------------------------------------------------------------
 
 export const api = {
-  // PIN Verification helper
-  verifyPin: async (pin: string): Promise<boolean> => {
-    try {
-      const url = `${BASE_URL}/api/health`;
-      const res = await fetch(url, {
-        headers: { 'X-Access-Pin': pin }
-      });
-      if (res.status === 401) return false;
-      return res.ok;
-    } catch {
-      return false;
-    }
-  },
-
   // Accounts
   getDashboardData: () => apiFetch<{
     stats: {
@@ -227,6 +234,17 @@ export const api = {
   launchCampaign: (id: number) => apiFetch<{ success: boolean; message: string }>(`/api/campaigns/${id}/launch`, { method: 'POST' }),
   pauseCampaign: (id: number) => apiFetch<{ success: boolean }>(`/api/campaigns/${id}/pause`, { method: 'POST' }),
   resumeCampaign: (id: number) => apiFetch<{ success: boolean }>(`/api/campaigns/${id}/resume`, { method: 'POST' }),
+  previewCampaign: (id: number, count?: number, step?: number) => apiFetch<{
+    subject: string;
+    body_html: string;
+    recipient_email: string;
+    sender_email: string | null;
+  }[]>(`/api/campaigns/${id}/preview?${count ? `count=${count}&` : ''}${step ? `step=${step}` : ''}`),
+  getCampaignRecipients: (id: number) => apiFetch<CampaignRecipient[]>(`/api/campaigns/${id}/recipients`),
+  updateCampaignRecipientStatus: (id: number, email: string, status: string) => apiFetch<{ success: boolean }>(`/api/campaigns/${id}/recipients/status`, {
+    method: 'POST',
+    body: JSON.stringify({ email, status })
+  }),
 
   // Contacts
   getContactLists: () => apiFetch<ContactListInfo[]>('/api/contacts/lists'),
@@ -273,5 +291,33 @@ export const api = {
     method: 'PUT',
     body: JSON.stringify(data)
   }),
-  deleteTemplate: (id: number) => apiFetch<{ success: boolean }>(`/api/templates/${id}`, { method: 'DELETE' })
+  deleteTemplate: (id: number) => apiFetch<{ success: boolean }>(`/api/templates/${id}`, { method: 'DELETE' }),
+
+  // Auth
+  getLoginUrl: () => apiFetch<{ url: string }>('/api/auth/google-url'),
+  getCurrentUser: () => apiFetch<{ id: number; email: string; name: string; role: string; picture?: string }>('/api/auth/me'),
+  updateProfile: (name: string, picture: string) => apiFetch<{ success: boolean; message: string }>('/api/auth/profile', {
+    method: 'POST',
+    body: JSON.stringify({ name, picture }),
+  }),
+  getSettings: () => apiFetch<{
+    ADMIN_EMAIL: string;
+    TRACKING_BASE_URL: string;
+    SCHEDULER_BATCH_SIZE: string;
+    DAILY_LIMIT_DEFAULT: string;
+  }>('/api/auth/settings'),
+  updateSettings: (settings: {
+    ADMIN_EMAIL?: string;
+    TRACKING_BASE_URL?: string;
+    SCHEDULER_BATCH_SIZE?: string;
+    DAILY_LIMIT_DEFAULT?: string;
+  }) => apiFetch<{ success: boolean; message: string }>('/api/auth/settings', {
+    method: 'POST',
+    body: JSON.stringify(settings),
+  }),
+  logout: () => {
+    localStorage.removeItem('auth_token');
+    sessionStorage.removeItem('access_pin');
+    return Promise.resolve({ success: true });
+  },
 };

@@ -9,18 +9,18 @@ export default function Contact() {
     <AppShell>
       <SEO
         title="Contact Support - Direct Feedback & Custom Coding"
-        description="Get in touch with Peakconix Sender team. Reach out via email support or direct WhatsApp chat for rapid feedback, business integrations, custom development, or general inquiries."
+        description="Get in touch with the Peak Xender team. Reach out via email support or direct WhatsApp chat for rapid feedback, business integrations, custom development, or general inquiries."
         keywords={[
-          'contact Peakconix Sender',
+          'contact Peak Xender',
           'email outreach support',
-          'Peakconix custom development',
+          'Peak Xender custom development',
           'direct WhatsApp outreach tool'
         ]}
         schema={{
           '@context': 'https://schema.org',
           '@type': 'ContactPage',
-          'name': 'Contact Peakconix Sender',
-          'description': 'Get in touch with the Peakconix Sender team via support email or direct WhatsApp chat.',
+          'name': 'Contact Peak Xender',
+          'description': 'Get in touch with the Peak Xender team via support email or direct WhatsApp chat.',
           'contactPoint': [
             {
               '@type': 'ContactPoint',
@@ -39,7 +39,7 @@ export default function Contact() {
       />
       <div className="p-4 sm:p-8">
         <div className="mx-auto max-w-3xl space-y-10">
-              <Link to="/">
+              <Link to="/send">
                 <Button variant="ghost" className="pl-0 hover:pl-2 transition-all text-muted-foreground hover:text-foreground cursor-pointer">
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Back to Dashboard
@@ -66,7 +66,7 @@ export default function Contact() {
                   <a href="mailto:peakconix@gmail.com" className="block pt-2">
                     <Button className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white shadow-md border-none flex items-center justify-center gap-2 transition-all cursor-pointer">
                       <Send className="h-4 w-4" />
-                      peakconix@gmail.com
+                      peakxender@gmail.com
                     </Button>
                   </a>
                 </div>
@@ -104,7 +104,7 @@ export default function Contact() {
                   <a href="https://www.instagram.com/peakconix?utm_source=qr&igsh=Y2xoanAxN3RjM2oy" target="_blank" rel="noopener noreferrer" className="block pt-2">
                     <Button className="w-full bg-gradient-to-r from-pink-600 to-pink-500 hover:from-pink-700 hover:to-pink-600 text-white shadow-md border-none flex items-center justify-center gap-2 transition-all cursor-pointer">
                       <Instagram className="h-4 w-4" />
-                      Follow @peakconix
+                      Follow @peakxender
                     </Button>
                   </a>
                 </div>

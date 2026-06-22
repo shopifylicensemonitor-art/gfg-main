@@ -17,7 +17,7 @@ const { getDb } = require('../db');
 router.get('/', async (_req, res) => {
   try {
     const db = await getDb();
-    const templates = db.prepare('SELECT * FROM templates ORDER BY created_at DESC').all();
+    const templates = await db.prepare('SELECT * FROM templates ORDER BY created_at DESC').all();
     res.json(templates);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -28,7 +28,7 @@ router.get('/', async (_req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const db = await getDb();
-    const template = db.prepare('SELECT * FROM templates WHERE id = ?').get(req.params.id);
+    const template = await db.prepare('SELECT * FROM templates WHERE id = ?').get(req.params.id);
     if (!template) return res.status(404).json({ error: 'Not found.' });
     res.json(template);
   } catch (err) {
@@ -45,7 +45,7 @@ router.post('/', async (req, res) => {
 
   try {
     const db = await getDb();
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO templates (name, subject, body_html, body_plain)
       VALUES (?, ?, ?, ?)
     `).run(name, subject, body_html || '', body_plain || '');
@@ -60,7 +60,7 @@ router.put('/:id', async (req, res) => {
   const { name, subject, body_html, body_plain } = req.body;
   try {
     const db = await getDb();
-    db.prepare(`
+    await db.prepare(`
       UPDATE templates SET name = ?, subject = ?, body_html = ?, body_plain = ?
       WHERE id = ?
     `).run(name, subject, body_html || '', body_plain || '', req.params.id);
@@ -74,7 +74,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const db = await getDb();
-    db.prepare('DELETE FROM templates WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM templates WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

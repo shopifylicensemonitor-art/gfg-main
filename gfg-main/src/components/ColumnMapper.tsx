@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { suggestFieldMapping, type ParsedCSV } from '@/lib/csvParser';
+import { suggestFieldMapping, normalizeHeaderKey, type ParsedCSV } from '@/lib/csvParser';
 import { AlertCircle, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
@@ -26,6 +26,35 @@ export function ColumnMapper({ isOpen, onClose, parsedCSV, fileName, onConfirm }
   const { headers, rows } = parsedCSV;
   const [mappings, setMappings] = useState<Record<string, string>>({});
 
+  // Build dynamic variables from CSV headers that aren't covered by the built-in 5
+  const dynamicVariables = useMemo(() => {
+    const builtInKeys = new Set(AVAILABLE_VARIABLES.map(v => v.value));
+    const dynamics: { value: string; label: string; desc: string }[] = [];
+    const seenKeys = new Set<string>();
+
+    for (const header of headers) {
+      const builtInMatch = suggestFieldMapping(header);
+      if (builtInMatch) continue; // Already covered by a built-in variable
+
+      const key = normalizeHeaderKey(header);
+      if (!key || builtInKeys.has(key) || seenKeys.has(key)) continue;
+      seenKeys.add(key);
+
+      dynamics.push({
+        value: key,
+        label: `${header} ({{${key}}})`,
+        desc: `Custom field from CSV column "${header}"`,
+      });
+    }
+    return dynamics;
+  }, [headers]);
+
+  // Merged list: built-in + dynamic
+  const allVariables = useMemo(
+    () => [...AVAILABLE_VARIABLES, ...dynamicVariables],
+    [dynamicVariables]
+  );
+
   // Auto-map headers when CSV changes
   useEffect(() => {
     if (headers.length > 0) {
@@ -35,12 +64,15 @@ export function ColumnMapper({ isOpen, onClose, parsedCSV, fileName, onConfirm }
         if (suggestion) {
           initial[header] = suggestion;
         } else {
-          initial[header] = 'skip';
+          // Auto-map custom columns to their own normalized key
+          const key = normalizeHeaderKey(header);
+          const isDynamic = dynamicVariables.some(d => d.value === key);
+          initial[header] = isDynamic ? key : 'skip';
         }
       });
       setMappings(initial);
     }
-  }, [headers]);
+  }, [headers, dynamicVariables]);
 
   const handleMappingChange = (header: string, target: string) => {
     // If setting to a target variable that is already mapped elsewhere, clear the previous mapping
@@ -99,21 +131,15 @@ export function ColumnMapper({ isOpen, onClose, parsedCSV, fileName, onConfirm }
               You can insert these placeholders in your subject and body. They will be auto-replaced for each lead.
             </p>
             <div className="flex flex-wrap gap-1.5 pt-1">
-              <Badge variant="secondary" className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card/60">
-                {"{{email}}"}
-              </Badge>
-              <Badge variant="secondary" className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card/60">
-                {"{{first_name}}"}
-              </Badge>
-              <Badge variant="secondary" className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card/60">
-                {"{{store_name}}"}
-              </Badge>
-              <Badge variant="secondary" className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card/60">
-                {"{{niche}}"}
-              </Badge>
-              <Badge variant="secondary" className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card/60">
-                {"{{pain_point}}"}
-              </Badge>
+              {allVariables.map(v => (
+                <Badge key={v.value} variant="secondary" className={`font-mono text-[9px] px-2 py-0.5 border bg-card/60 ${
+                  dynamicVariables.some(d => d.value === v.value)
+                    ? 'border-primary/30 text-primary'
+                    : 'border-border'
+                }`}>
+                  {`{{${v.value}}}`}
+                </Badge>
+              ))}
             </div>
           </div>
 
@@ -144,7 +170,7 @@ export function ColumnMapper({ isOpen, onClose, parsedCSV, fileName, onConfirm }
                           className="w-full bg-background border border-border/80 rounded-md h-8 px-1.5 focus:outline-none text-[11px] font-semibold text-foreground cursor-pointer"
                         >
                           <option value="skip">❌ [ Skip Column ]</option>
-                          {AVAILABLE_VARIABLES.map(v => (
+                          {allVariables.map(v => (
                             <option key={v.value} value={v.value}>
                               {currentValue === v.value ? '✅ ' : ''}{v.label}
                             </option>

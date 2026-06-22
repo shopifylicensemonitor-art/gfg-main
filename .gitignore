@@ -1,6 +1,30 @@
 node_modules
-mailflow.db
+gfg-main/node_modules
+gfg-main/dist
+
+# Database files
+*.db
+
+# Environment & credentials
 .env
+.env.*
+credentials.json
+token.json
+
+# Temp & build artifacts
 .tmp/
 *.txt
 *.log
+
+# Agent directories & lock files
+.agents/
+skills-lock.json
+
+# Local config & build timestamps
+gfg-main/vite.config.ts.timestamp*
+
+# Test scripts
+test_csv.js
+test_spintax.js
+
+

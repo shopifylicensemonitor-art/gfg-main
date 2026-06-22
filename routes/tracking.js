@@ -11,6 +11,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
+const logger = require('../logger');
 
 // Transparent 1x1 GIF tracking pixel
 const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
@@ -20,9 +21,9 @@ router.get('/open/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const db = await getDb();
-    db.prepare('UPDATE queue SET opens_count = opens_count + 1 WHERE id = ?').run(id);
+    await db.prepare('UPDATE queue SET opens_count = opens_count + 1 WHERE id = ?').run(id);
   } catch (err) {
-    console.error(`[Tracking] Error registering open on queue item #${id}:`, err.message);
+    logger.error({ err, queueItemId: id }, 'Error registering open on queue item');
   }
 
   res.writeHead(200, {
@@ -42,11 +43,16 @@ router.get('/click/:id', async (req, res) => {
     return res.status(400).send('Missing redirect URL parameter (?url=...).');
   }
 
+  // Prevent open redirect attacks — only allow http(s) URLs
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return res.status(400).send('Invalid redirect URL. Only http and https URLs are allowed.');
+  }
+
   try {
     const db = await getDb();
-    db.prepare('UPDATE queue SET clicks_count = clicks_count + 1 WHERE id = ?').run(id);
+    await db.prepare('UPDATE queue SET clicks_count = clicks_count + 1 WHERE id = ?').run(id);
   } catch (err) {
-    console.error(`[Tracking] Error registering click on queue item #${id}:`, err.message);
+    logger.error({ err, queueItemId: id, url }, 'Error registering click on queue item');
   }
 
   res.redirect(url);

@@ -6,7 +6,7 @@ import { SearchBar } from '@/components/SearchBar';
 import { FastMailSend } from '@/components/FastMailSend';
 import { GeneratedEmails, type FilterType } from '@/components/GeneratedEmails';
 import { useEmailList } from '@/hooks/useEmailList';
-import { parseCSV, type ParsedCSV } from '@/lib/csvParser';
+import { parseCSV, extractEmailsAndUrlsFromCell, suggestFieldMapping, normalizeHeaderKey, type ParsedCSV } from '@/lib/csvParser';
 import { ColumnMapper } from '@/components/ColumnMapper';
 import { useTemplates } from '@/hooks/useTemplates';
 import { useDailyCounter } from '@/hooks/useDailyCounter';
@@ -20,6 +20,7 @@ import { Confetti } from '@/components/Confetti';
 import { GoalAlarm } from '@/components/GoalAlarm';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { api, type ContactListInfo } from '../api';
 
 // Milestones scale from 10 to 10M+ with no cap
 const MILESTONES = [
@@ -164,6 +165,11 @@ const Index = () => {
     const stored = localStorage.getItem(BCC_BATCH_OPEN_COUNT_KEY);
     return stored ? parseInt(stored, 10) : 5;
   });
+  const [goalInput, setGoalInput] = useState(() => localStorage.getItem('peakx-send-goal') || '');
+  const [autoScroll, setAutoScroll] = useState(() => {
+    const stored = localStorage.getItem('peakx-auto-scroll');
+    return stored === 'false' ? false : true;
+  });
   const [emailText, setEmailText] = useState(() => {
     const stored = localStorage.getItem(TEXTAREA_STORAGE_KEY);
     return stored || '';
@@ -180,6 +186,16 @@ const Index = () => {
     const stored = localStorage.getItem(FILTER_STORAGE_KEY);
     return (stored as FilterType) || 'all';
   });
+  const [activeVariables, setActiveVariables] = useState<string[]>([]);
+  const [savedLists, setSavedLists] = useState<ContactListInfo[]>([]);
+
+  useEffect(() => {
+    localStorage.setItem('peakx-send-goal', goalInput);
+  }, [goalInput]);
+
+  useEffect(() => {
+    localStorage.setItem('peakx-auto-scroll', String(autoScroll));
+  }, [autoScroll]);
 
   // ── Ref Hooks ──────────────────────────────────────────────────────────────
   const resultsSectionRef = useRef<HTMLDivElement>(null);
@@ -194,6 +210,12 @@ const Index = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only on mount
+
+  useEffect(() => {
+    api.getContactLists()
+      .then(setSavedLists)
+      .catch(err => console.error("Error fetching contact lists:", err));
+  }, []);
 
   // Save to localStorage on change
   useEffect(() => {
@@ -249,16 +271,17 @@ const Index = () => {
   const installPWA = useCallback(async () => {
     const accepted = await install();
     if (accepted) {
-      toast({ title: '🎉 Installed!', description: 'Peakconix Sender has been added to your home screen.' });
+      toast({ title: '🎉 Installed!', description: 'Peak Xender has been added to your home screen.' });
     }
   }, [install]);
 
   // Scroll to results section after generation
   const scrollToResults = useCallback(() => {
+    if (!autoScroll) return;
     setTimeout(() => {
       resultsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 150);
-  }, []);
+  }, [autoScroll]);
 
   const handleClearAllHistory = () => {
     if (!window.confirm('Clear all history? This will remove all emails, sent status, and counters. This cannot be undone.')) return;
@@ -268,6 +291,7 @@ const Index = () => {
     setBody(DEFAULT_BODY);
     setFilter('all');
     setLastMilestone(0); // Reset milestones so they can re-trigger
+    setActiveVariables([]);
     
     // Reset configurations to default
     setMyInboxTo('');
@@ -276,6 +300,8 @@ const Index = () => {
     setAlarmIntervalStep('200');
     setBccBatchSize(20);
     setBccBatchOpenCount(5);
+    setGoalInput('');
+    setAutoScroll(true);
 
     // Clear potential storage keys (EXCEPT Text area)
     const keysToClear = [
@@ -294,6 +320,8 @@ const Index = () => {
       ALARM_INTERVAL_STEP_KEY,
       BCC_BATCH_SIZE_KEY,
       BCC_BATCH_OPEN_COUNT_KEY,
+      'peakx-send-goal',
+      'peakx-auto-scroll',
     ];
 
     keysToClear.forEach(key => localStorage.removeItem(key));
@@ -315,6 +343,17 @@ const Index = () => {
   };
 
   const handleSendClick = useCallback((email: string) => {
+    const goal = parseInt(goalInput, 10);
+    const validGoal = !isNaN(goal) && goal > 0;
+    if (validGoal && dailyCount >= goal) {
+      toast({
+        title: "Daily Limit Reached",
+        description: `You have reached your daily sending target limit of ${goal} emails.`,
+        variant: "destructive"
+      });
+      return;
+    }
+
     markAsSent(email);
     incrementDaily();
     trackClick();
@@ -328,15 +367,37 @@ const Index = () => {
       niche: entry?.fields?.niche,
       type: 'individual'
     });
-  }, [markAsSent, incrementDaily, trackClick, emails, addLog]);
+  }, [markAsSent, incrementDaily, trackClick, emails, addLog, goalInput, dailyCount]);
 
   const handleSendBatchClick = useCallback((batchEmails: string[]) => {
-    markBatchAsSent(batchEmails);
-    incrementDaily(batchEmails.length);
-    trackClick(batchEmails.length);
+    const goal = parseInt(goalInput, 10);
+    const validGoal = !isNaN(goal) && goal > 0;
+    if (validGoal && dailyCount >= goal) {
+      toast({
+        title: "Daily Limit Reached",
+        description: `You have reached your daily sending target limit of ${goal} emails.`,
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Truncate batch size if it would exceed target
+    let emailsToTrigger = batchEmails;
+    if (validGoal && dailyCount + batchEmails.length > goal) {
+      const allowedCount = goal - dailyCount;
+      emailsToTrigger = batchEmails.slice(0, allowedCount);
+      toast({
+        title: "Batch Partially Opened",
+        description: `Opening first ${allowedCount} emails to stay precisely within your daily target limit.`,
+      });
+    }
+
+    markBatchAsSent(emailsToTrigger);
+    incrementDaily(emailsToTrigger.length);
+    trackClick(emailsToTrigger.length);
 
     // Find lead details in current list to enrich tracking logs
-    const newLogs = batchEmails.map(email => {
+    const newLogs = emailsToTrigger.map(email => {
       const entry = emails.find(e => e.email === email);
       return {
         email,
@@ -347,7 +408,7 @@ const Index = () => {
       };
     });
     addLogs(newLogs);
-  }, [markBatchAsSent, incrementDaily, trackClick, emails, addLogs]);
+  }, [markBatchAsSent, incrementDaily, trackClick, emails, addLogs, goalInput, dailyCount]);
 
   const handleSaveTemplate = (name: string, subj: string, bodyText: string) => {
     saveTemplate(name, subj, bodyText);
@@ -365,28 +426,75 @@ const Index = () => {
     });
   };
 
-  const handleConfirmMapping = (mappings: Record<string, string>) => {
-    setIsMapperOpen(false);
+  const processCSVData = (parsed: ParsedCSV, fileName: string, customMappings?: Record<string, string>) => {
+    if (parsed.headers.length === 0 || parsed.rows.length === 0) return;
 
-    // Identify which CSV column maps to the required target variables
-    const emailCol = Object.keys(mappings).find(key => mappings[key] === 'email')!;
+    // 1. Detect the email column
+    let emailCol = parsed.headers.find(h => suggestFieldMapping(h) === 'email');
+    if (!emailCol) {
+      emailCol = parsed.headers.find(h => h.toLowerCase().includes('email'));
+    }
+    if (!emailCol) {
+      const emailRegex = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+      for (const header of parsed.headers) {
+        const hasEmail = parsed.rows.slice(0, 5).some(row => emailRegex.test(row[header] || ''));
+        if (hasEmail) {
+          emailCol = header;
+          break;
+        }
+      }
+    }
+    if (!emailCol) {
+      emailCol = parsed.headers[0];
+    }
+
+    // 2. Build the mappings
+    const mappings: Record<string, string> = {};
+    if (customMappings) {
+      Object.assign(mappings, customMappings);
+    } else {
+      parsed.headers.forEach(header => {
+        if (header === emailCol) {
+          mappings[header] = 'email';
+        } else {
+          const suggested = suggestFieldMapping(header);
+          if (suggested && suggested !== 'email') {
+            mappings[header] = suggested;
+          } else {
+            mappings[header] = normalizeHeaderKey(header);
+          }
+        }
+      });
+    }
+
+    const emailColKey = Object.keys(mappings).find(key => mappings[key] === 'email') || emailCol;
     const firstNameCol = Object.keys(mappings).find(key => mappings[key] === 'first_name');
     const storeNameCol = Object.keys(mappings).find(key => mappings[key] === 'store_name');
     const nicheCol = Object.keys(mappings).find(key => mappings[key] === 'niche');
     const painPointCol = Object.keys(mappings).find(key => mappings[key] === 'pain_point');
 
     let seq = 1;
-    const entries = parsedCSV.rows.map(row => {
-      const email = row[emailCol]?.trim().toLowerCase() || '';
-      // Only process valid email syntax
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const isValid = emailRegex.test(email);
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const entries = parsed.rows.flatMap(row => {
+      const rawEmailCell = row[emailColKey]?.trim() || '';
+      if (!rawEmailCell) return [];
 
+      const { emails: emailCandidates, url: extractedUrl } = extractEmailsAndUrlsFromCell(rawEmailCell);
+
+      // Build shared fields from this row
       const fields: Record<string, string> = {};
       if (firstNameCol) fields['first_name'] = row[firstNameCol] || '';
       if (storeNameCol) fields['store_name'] = row[storeNameCol] || '';
       if (nicheCol) fields['niche'] = row[nicheCol] || '';
       if (painPointCol) fields['pain_point'] = row[painPointCol] || '';
+
+      // Set store_url and store_name if URL is extracted
+      if (extractedUrl) {
+        fields['store_url'] = extractedUrl;
+        if (!fields['store_name']) {
+          fields['store_name'] = extractedUrl;
+        }
+      }
 
       // Copy custom columns as well
       Object.keys(mappings).forEach(key => {
@@ -397,33 +505,126 @@ const Index = () => {
       });
 
       const name = fields['first_name'] || undefined;
-      const currentSeq = seq++;
 
-      return {
-        id: String(currentSeq),
-        sequenceId: currentSeq,
-        email,
-        name,
-        isValid,
-        fields
-      };
-    }).filter(e => e.email !== ''); // Filter out empty email rows
+      return emailCandidates.map(email => {
+        const isValid = emailRegex.test(email);
+        const currentSeq = seq++;
+        return {
+          id: String(currentSeq),
+          sequenceId: currentSeq,
+          email,
+          name,
+          isValid,
+          fields: { ...fields },
+        };
+      });
+    }).filter(e => e.email !== '');
 
     replaceEmailEntries(entries);
 
+    // Save mapped variable categories for dynamic textbox buttons display
+    const mappedTargets = Object.values(mappings).filter(v => v !== 'skip');
+    setActiveVariables(Array.from(new Set(mappedTargets)));
+
     // Update email text editor view
-    const displayEmails = entries.slice(0, 1000).map(e => e.email);
-    const header = `# Uploaded CSV: ${uploadedFileName} (${entries.length.toLocaleString()} leads mapped)\n`;
-    const moreNote = entries.length > 1000
-      ? `# Showing first 1,000 emails — all ${entries.length.toLocaleString()} leads with fields are loaded\n`
+    const MAX_CSV_DISPLAY = 20000;
+    const displayEmails = entries.slice(0, MAX_CSV_DISPLAY).map(e => e.email);
+    const header = `# Uploaded CSV: ${fileName} (${entries.length.toLocaleString()} leads mapped)\n`;
+    const moreNote = entries.length > MAX_CSV_DISPLAY
+      ? `# Showing first ${MAX_CSV_DISPLAY.toLocaleString()} emails — all ${entries.length.toLocaleString()} leads with fields are loaded\n`
       : '';
     setEmailText(header + moreNote + displayEmails.join('\n'));
 
+    toast({
+      title: "CSV Import Success",
+      description: `Loaded ${parsed.rows.length.toLocaleString()} leads from ${fileName}.`
+    });
+
     // Scroll to results
-    setTimeout(() => {
-      const el = document.getElementById('generated-emails-section');
-      el?.scrollIntoView({ behavior: 'smooth' });
-    }, 150);
+    if (autoScroll) {
+      setTimeout(() => {
+        const el = document.getElementById('generated-emails-section');
+        el?.scrollIntoView({ behavior: 'smooth' });
+      }, 150);
+    }
+  };
+
+  const handleConfirmMapping = (mappings: Record<string, string>) => {
+    setIsMapperOpen(false);
+    processCSVData(parsedCSV, uploadedFileName, mappings);
+  };
+
+  const handleLoadSavedList = async (listName: string) => {
+    if (!listName) return;
+    setIsProcessing(true);
+    try {
+      const fetchedContacts = await api.getContacts(listName);
+      if (fetchedContacts.length === 0) {
+        toast({
+          title: "No contacts found",
+          description: `The contact list "${listName}" is empty.`,
+          variant: "destructive"
+        });
+        setIsProcessing(false);
+        return;
+      }
+
+      let seq = 1;
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const entries = fetchedContacts.map(c => {
+        const isValid = emailRegex.test(c.email);
+        const currentSeq = seq++;
+        
+        // Extract fields
+        const fields = c.fields || {};
+        const name = fields.first_name || fields.name || undefined;
+        
+        return {
+          id: String(currentSeq),
+          sequenceId: currentSeq,
+          email: c.email,
+          name,
+          isValid,
+          fields,
+        };
+      });
+
+      replaceEmailEntries(entries);
+
+      // Extract active variables
+      const allKeys = entries.length > 0 && entries[0].fields ? Object.keys(entries[0].fields) : [];
+      setActiveVariables(Array.from(new Set(['first_name', 'store_name', 'niche', ...allKeys])));
+
+      // Set text in text area
+      const displayEmails = entries.slice(0, 20000).map(e => e.email);
+      const header = `# Loaded List: ${listName} (${entries.length.toLocaleString()} leads loaded)\n`;
+      const moreNote = entries.length > 20000
+        ? `# Showing first 20,000 emails — all ${entries.length.toLocaleString()} leads with fields are loaded\n`
+        : '';
+      setEmailText(header + moreNote + displayEmails.join('\n'));
+
+      toast({
+        title: "List Loaded",
+        description: `Successfully loaded ${entries.length.toLocaleString()} contacts from "${listName}".`
+      });
+
+      // Scroll to generated emails section
+      if (autoScroll) {
+        setTimeout(() => {
+          const el = document.getElementById('generated-emails-section');
+          el?.scrollIntoView({ behavior: 'smooth' });
+        }, 150);
+      }
+
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Error loading contact list",
+        description: err.message || "Failed to fetch contact details from database."
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleFileUpload = (file: File) => {
@@ -481,10 +682,12 @@ const Index = () => {
                 title: "File Imported",
                 description: `Successfully loaded ${processedEmails.length.toLocaleString()} emails.`
               });
-              setTimeout(() => {
-                const el = document.getElementById('generated-emails-section');
-                el?.scrollIntoView({ behavior: 'smooth' });
-              }, 100);
+              if (autoScroll) {
+                setTimeout(() => {
+                  const el = document.getElementById('generated-emails-section');
+                  el?.scrollIntoView({ behavior: 'smooth' });
+                }, 100);
+              }
             } else {
               toast({
                 title: "No emails found",
@@ -517,13 +720,13 @@ const Index = () => {
           'cold email personalization generator',
           'mailto bulk generator',
           'private cold outreach builder',
-          'Peakconix Sender dashboard'
+          'Peak Xender dashboard'
         ]}
         schema={{
           '@context': 'https://schema.org',
           '@type': 'WebApplication',
-          'name': 'Peakconix Sender',
-          'alternateName': 'Peakconix Bulk Email Outreach Tool',
+          'name': 'Peak Xender',
+          'alternateName': 'Peak Xender Bulk Email Outreach Tool',
           'description': 'Lightning-fast bulk email outreach and personalization tool designed for speed and simplicity. 100% client-side and privacy-focused, running entirely in your browser.',
           'applicationCategory': 'BusinessApplication, CommunicationApplication',
           'operatingSystem': 'All (Web, Windows, macOS, Linux, iOS, Android)',
@@ -543,8 +746,8 @@ const Index = () => {
           ],
           'author': {
             '@type': 'Organization',
-            'name': 'Peakconix',
-            'email': 'peakconix@gmail.com'
+            'name': 'Peak Xender',
+            'email': 'peakxender@gmail.com'
           }
         }}
       />
@@ -603,6 +806,11 @@ const Index = () => {
             onBccBatchSizeChange={setBccBatchSize}
             bccBatchOpenCount={bccBatchOpenCount}
             onBccBatchOpenCountChange={setBccBatchOpenCount}
+            activeVariables={activeVariables}
+            savedLists={savedLists}
+            onLoadSavedList={handleLoadSavedList}
+            autoScroll={autoScroll}
+            onAutoScrollChange={setAutoScroll}
           />
         </ErrorBoundary>
 
@@ -611,6 +819,8 @@ const Index = () => {
           todayCount={dailyCount} 
           intervalStep={alarmIntervalStep}
           onIntervalStepChange={setAlarmIntervalStep}
+          goalInput={goalInput}
+          onGoalInputChange={setGoalInput}
         />
 
         {/* Activity Dashboard (24h) - MOVED TO DASHBOARD PAGE */}
@@ -637,6 +847,8 @@ const Index = () => {
               onSendBatchClick={handleSendBatchClick}
               bccBatchSize={bccBatchSize}
               bccBatchOpenCount={bccBatchOpenCount}
+              dailyCount={dailyCount}
+              goalInput={goalInput}
             />
           </ErrorBoundary>
         </div>
@@ -657,7 +869,7 @@ const Index = () => {
                 {reachedMilestoneInfo?.title || 'Milestone Reached!'}
               </h2>
               <p className="text-xs text-muted-foreground uppercase tracking-widest font-mono font-bold text-primary/80">
-                Peakconix Sender Achievement
+                Peak Xender Achievement
               </p>
             </div>
             <div className="p-4 rounded-xl bg-primary/[0.04] border border-primary/10 shadow-inner">
