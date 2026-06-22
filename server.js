@@ -39,7 +39,7 @@ const strictLimiter = rateLimit({
 // ---------------------------------------------------------------------------
 const allowedOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
 app.use(cors({
-  origin: [allowedOrigin, 'http://localhost:5173'],
+  origin: [allowedOrigin, 'http://localhost:5173', 'https://peak-x-sender-v3-test.netlify.app'],
   credentials: true
 }));
 

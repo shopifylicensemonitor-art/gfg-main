@@ -66,7 +66,8 @@ router.get('/callback', async (req, res) => {
     // Check admin restriction
     if (ADMIN_EMAIL && email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
       // Redirect to frontend with error
-      return res.redirect('/?auth_error=unauthorized');
+      const frontendUrl = process.env.FRONTEND_ORIGIN || '';
+      return res.redirect(frontendUrl + '/?auth_error=unauthorized');
     }
 
     // Upsert user in database
@@ -94,7 +95,8 @@ router.get('/callback', async (req, res) => {
     );
 
     // Redirect to frontend with token in query
-    res.redirect(`/?token=${encodeURIComponent(token)}`);
+    const frontendUrl = process.env.FRONTEND_ORIGIN || '';
+    res.redirect(frontendUrl + `/?token=${encodeURIComponent(token)}`);
   } catch (err) {
     logger.error({ err }, 'Auth callback error');
     res.status(500).json({ error: err.message });

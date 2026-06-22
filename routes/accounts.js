@@ -140,12 +140,14 @@ router.get('/callback', async (req, res) => {
       `).run(email, tokens.access_token, tokens.refresh_token, tokens.expiry_date);
     }
 
+    const frontendUrl = process.env.FRONTEND_ORIGIN || '';
     // Redirect back to the frontend dashboard
-    res.redirect('/?account_added=' + encodeURIComponent(email));
+    res.redirect(frontendUrl + '/?account_added=' + encodeURIComponent(email));
   } catch (err) {
     const logger = require('../logger');
     logger.error({ err: err.message }, 'OAuth callback error');
-    res.redirect('/?account_error=' + encodeURIComponent(err.message));
+    const frontendUrl = process.env.FRONTEND_ORIGIN || '';
+    res.redirect(frontendUrl + '/?account_error=' + encodeURIComponent(err.message));
   }
 });
 
