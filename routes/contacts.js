@@ -34,13 +34,79 @@ router.get('/lists', async (_req, res) => {
   }
 });
 
-/** Get all contacts in a specific list. */
+/** Retrieve configuration state for a device/IP. */
+router.get('/state/retrieve', async (req, res) => {
+  try {
+    const db = await getDb();
+    const deviceId = req.query.device_id || '';
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
+
+    let row;
+    if (deviceId) {
+      row = await db.prepare('SELECT state_data FROM device_states WHERE device_id = ?').get(deviceId);
+    }
+    if (!row) {
+      row = await db.prepare('SELECT state_data FROM device_states WHERE ip_address = ? ORDER BY updated_at DESC').get(ip);
+    }
+
+    if (row) {
+      res.json(JSON.parse(row.state_data));
+    } else {
+      res.json(null);
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Save configuration state for a device/IP. */
+router.post('/state/save', async (req, res) => {
+  try {
+    const db = await getDb();
+    const { device_id: deviceId, state_data: stateData } = req.body;
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
+
+    if (!deviceId) {
+      return res.status(400).json({ error: 'device_id is required.' });
+    }
+
+    const stateStr = typeof stateData === 'string' ? stateData : JSON.stringify(stateData);
+
+    const existing = await db.prepare('SELECT device_id FROM device_states WHERE device_id = ?').get(deviceId);
+    if (existing) {
+      await db.prepare('UPDATE device_states SET state_data = ?, ip_address = ?, updated_at = datetime(\'now\') WHERE device_id = ?')
+        .run(stateStr, ip, deviceId);
+    } else {
+      await db.prepare('INSERT INTO device_states (device_id, ip_address, state_data) VALUES (?, ?, ?)')
+        .run(deviceId, ip, stateStr);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Get all contacts in a specific list, with optional pagination. */
 router.get('/:listName', async (req, res) => {
   try {
     const db = await getDb();
-    const contacts = await db.prepare(
-      'SELECT * FROM contacts WHERE list_name = ? ORDER BY id'
-    ).all(req.params.listName);
+    const limit = parseInt(req.query.limit, 10);
+    const offset = parseInt(req.query.offset, 10);
+    
+    let query = 'SELECT * FROM contacts WHERE list_name = ? ORDER BY id';
+    const params = [req.params.listName];
+    
+    if (!isNaN(limit) && limit > 0) {
+      query += ' LIMIT ?';
+      params.push(limit);
+      if (!isNaN(offset) && offset >= 0) {
+        query += ' OFFSET ?';
+        params.push(offset);
+      }
+    }
+
+    const contacts = await db.prepare(query).all(params);
 
     const parsedContacts = contacts.map(c => {
       try {
@@ -57,31 +123,146 @@ router.get('/:listName', async (req, res) => {
   }
 });
 
-/** Simple CSV parser helper respecting quoted commas */
+/** Bulk add contacts to a list via JSON body. */
+router.post('/import-bulk', async (req, res) => {
+  const { list_name: listName, contacts } = req.body;
+  if (!listName) return res.status(400).json({ error: 'list_name is required.' });
+  if (!Array.isArray(contacts)) return res.status(400).json({ error: 'contacts array is required.' });
+
+  try {
+    const db = await getDb();
+
+    // Fetch existing emails to prevent duplicates efficiently
+    const existing = await db.prepare('SELECT email FROM contacts WHERE list_name = ?').all(listName);
+    const existingEmails = new Set(existing.map(row => row.email.toLowerCase()));
+
+    const contactsToInsert = [];
+    const seenInRequest = new Set();
+    let added = 0;
+    let skipped = 0;
+
+    for (const c of contacts) {
+      const email = (c.email || '').trim();
+      if (!email || !email.includes('@')) {
+        skipped++;
+        continue;
+      }
+      const emailLower = email.toLowerCase();
+      if (existingEmails.has(emailLower) || seenInRequest.has(emailLower)) {
+        skipped++;
+        continue;
+      }
+      seenInRequest.add(emailLower);
+      
+      contactsToInsert.push({
+        email,
+        fieldsJson: JSON.stringify(c.fields || {})
+      });
+    }
+
+    // Bulk insert in chunks of 200 using a transaction
+    if (contactsToInsert.length > 0) {
+      const insertTransaction = db.transaction(async (txDb) => {
+        const chunkSize = 200;
+        for (let i = 0; i < contactsToInsert.length; i += chunkSize) {
+          const chunk = contactsToInsert.slice(i, i + chunkSize);
+          const placeholders = chunk.map(() => '(?, ?, ?)').join(', ');
+          const sql = `INSERT INTO contacts (list_name, email, fields) VALUES ${placeholders}`;
+          const params = [];
+          chunk.forEach(item => {
+            params.push(listName, item.email, item.fieldsJson);
+          });
+          await txDb.prepare(sql).run(params);
+          added += chunk.length;
+        }
+      });
+      await insertTransaction();
+    }
+
+    res.json({
+      success: true,
+      added,
+      skipped,
+      total: added + skipped,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Robust CSV parser aligned with the frontend (csvParser.ts).
+ * Handles: comma, semicolon, and tab delimiters; quoted fields with
+ * escaped double-quotes ("") and embedded newlines; headerless CSVs.
+ * Returns an array of string arrays (rows × cells).
+ */
 function parseCSV(text) {
-  const lines = text.split(/\r?\n/);
+  if (!text || !text.trim()) return [];
+
+  // Detect delimiter from the first line
+  const firstLine = text.split(/\r?\n/)[0] || '';
+  let delimiter = ',';
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  const semiCount  = (firstLine.match(/;/g) || []).length;
+  const tabCount   = (firstLine.match(/\t/g) || []).length;
+
+  if (semiCount > commaCount && semiCount > tabCount) {
+    delimiter = ';';
+  } else if (tabCount > commaCount && tabCount > semiCount) {
+    delimiter = '\t';
+  }
+
   const rows = [];
-  
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const cells = [];
-    let cell = '';
-    let inQuotes = false;
-    
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
+  let currentRow = [];
+  let currentField = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+
+    if (inQuotes) {
       if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        cells.push(cell.trim().replace(/^["']|["']$/g, ''));
-        cell = '';
+        if (nextChar === '"') {
+          // Escaped double-quote
+          currentField += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
       } else {
-        cell += char;
+        currentField += char;
+      }
+    } else {
+      if (char === '"') {
+        inQuotes = true;
+      } else if (char === delimiter) {
+        currentRow.push(currentField.trim());
+        currentField = '';
+      } else if (char === '\r' || char === '\n') {
+        currentRow.push(currentField.trim());
+        currentField = '';
+        if (currentRow.length > 0 && (currentRow.length > 1 || currentRow[0] !== '')) {
+          rows.push(currentRow);
+        }
+        currentRow = [];
+        if (char === '\r' && nextChar === '\n') {
+          i++;
+        }
+      } else {
+        currentField += char;
       }
     }
-    cells.push(cell.trim().replace(/^["']|["']$/g, ''));
-    rows.push(cells);
   }
+
+  // Handle final field / row
+  if (currentField || currentRow.length > 0) {
+    currentRow.push(currentField.trim());
+    if (currentRow.length > 0 && (currentRow.length > 1 || currentRow[0] !== '')) {
+      rows.push(currentRow);
+    }
+  }
+
   return rows;
 }
 
@@ -92,6 +273,85 @@ function normalizeHeaderKey(header) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
+}
+
+/**
+ * Fuzzy-matches a CSV header against known field names.
+ * Aligned with the frontend suggestFieldMapping in csvParser.ts.
+ */
+function suggestFieldMapping(header) {
+  const norm = header.toLowerCase().trim().replace(/[-_\s]/g, '');
+
+  if (
+    norm === 'email' ||
+    norm.startsWith('email') ||
+    norm === 'emailaddress' ||
+    norm === 'contactemail' ||
+    norm === 'mail' ||
+    norm === 'to' ||
+    norm === 'recipient'
+  ) {
+    return 'email';
+  }
+
+  if (
+    norm === 'firstname' ||
+    norm === 'fname' ||
+    norm === 'name' ||
+    norm === 'first' ||
+    norm === 'contactname' ||
+    norm === 'leadname' ||
+    norm.startsWith('firstname') ||
+    norm.startsWith('name')
+  ) {
+    return 'first_name';
+  }
+
+  if (
+    norm === 'storename' ||
+    norm === 'store' ||
+    norm === 'shop' ||
+    norm === 'shopname' ||
+    norm === 'brand' ||
+    norm === 'brandname' ||
+    norm === 'website' ||
+    norm === 'domain' ||
+    norm === 'company' ||
+    norm === 'companyname' ||
+    norm.startsWith('store') ||
+    norm.startsWith('shop') ||
+    norm.startsWith('brand') ||
+    norm.startsWith('website') ||
+    norm.startsWith('company')
+  ) {
+    return 'store_name';
+  }
+
+  if (
+    norm === 'niche' ||
+    norm === 'industry' ||
+    norm === 'category' ||
+    norm === 'vertical' ||
+    norm === 'tag' ||
+    norm.startsWith('niche') ||
+    norm.startsWith('industry')
+  ) {
+    return 'niche';
+  }
+
+  if (
+    norm === 'painpoint' ||
+    norm === 'pain' ||
+    norm === 'problem' ||
+    norm === 'issue' ||
+    norm === 'offer' ||
+    norm.startsWith('painpoint') ||
+    norm.startsWith('problem')
+  ) {
+    return 'pain_point';
+  }
+
+  return '';
 }
 
 /** Extract multiple emails and a single URL from cell value */
@@ -146,75 +406,106 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
     let finalHeaders = [];
     let dataRows = [];
+    let emailColIndex = -1;
 
     if (isHeaderless) {
       dataRows = rows;
       finalHeaders = headers.map((cell, idx) => {
-        if (emailRegex.test(cell.trim())) return 'email';
+        if (emailRegex.test(cell.trim())) {
+          emailColIndex = idx;
+          return 'email';
+        }
         return `column_${idx + 1}`;
       });
+      if (emailColIndex === -1) {
+        emailColIndex = 0;
+      }
     } else {
       dataRows = rows.slice(1);
-      finalHeaders = headers.map(h => normalizeHeaderKey(h));
+      finalHeaders = headers.map((h, idx) => {
+        const mapped = suggestFieldMapping(h);
+        if (mapped === 'email') {
+          emailColIndex = idx;
+        }
+        return mapped || normalizeHeaderKey(h);
+      });
+      if (emailColIndex === -1) {
+        emailColIndex = finalHeaders.findIndex(h => h === 'email' || h.includes('email'));
+      }
+      if (emailColIndex === -1) {
+        emailColIndex = 0;
+      }
     }
-
-    const emailColIndex = finalHeaders.findIndex(h => h === 'email' || h.includes('email'));
-    const safeEmailColIndex = emailColIndex >= 0 ? emailColIndex : 0;
 
     let added = 0;
     let skipped = 0;
 
-    const insertBatch = db.transaction(async (txDb) => {
-      for (const row of dataRows) {
-        const emailCell = (row[safeEmailColIndex] || '').trim();
-        if (!emailCell) {
-          skipped++;
-          continue;
+    // Fetch existing emails to prevent duplicates efficiently
+    const existing = await db.prepare('SELECT email FROM contacts WHERE list_name = ?').all(listName);
+    const existingEmails = new Set(existing.map(row => row.email.toLowerCase()));
+
+    const contactsToInsert = [];
+    const seenInCsv = new Set();
+
+    for (const row of dataRows) {
+      const emailCell = (row[emailColIndex] || '').trim();
+      if (!emailCell) {
+        skipped++;
+        continue;
+      }
+
+      const { emails, url } = extractEmailsAndUrlsFromCell(emailCell);
+      if (emails.length === 0) {
+        skipped++;
+        continue;
+      }
+
+      // Build key-value fields object
+      const fields = {};
+      finalHeaders.forEach((header, idx) => {
+        if (idx !== emailColIndex) {
+          fields[header] = row[idx] || '';
         }
+      });
 
-        const { emails, url } = extractEmailsAndUrlsFromCell(emailCell);
-        if (emails.length === 0) {
-          skipped++;
-          continue;
-        }
-
-        // Build key-value fields object
-        const fields = {};
-        finalHeaders.forEach((header, idx) => {
-          if (idx !== safeEmailColIndex) {
-            fields[header] = row[idx] || '';
-          }
-        });
-
-        if (url) {
-          fields['store_url'] = url;
-          if (!fields['store_name']) {
-            fields['store_name'] = url;
-          }
-        }
-
-        const fieldsJson = JSON.stringify(fields);
-
-        for (const email of emails) {
-          // Skip duplicates within the same list
-          const existing = await txDb.prepare(
-            'SELECT id FROM contacts WHERE list_name = ? AND email = ?'
-          ).get(listName, email);
-
-          if (existing) {
-            skipped++;
-            continue;
-          }
-
-          await txDb.prepare(
-            'INSERT INTO contacts (list_name, email, fields) VALUES (?, ?, ?)'
-          ).run(listName, email, fieldsJson);
-          added++;
+      if (url) {
+        fields['store_url'] = url;
+        if (!fields['store_name']) {
+          fields['store_name'] = url;
         }
       }
-    });
 
-    await insertBatch();
+      const fieldsJson = JSON.stringify(fields);
+
+      for (const email of emails) {
+        const emailLower = email.toLowerCase();
+        if (existingEmails.has(emailLower) || seenInCsv.has(emailLower)) {
+          skipped++;
+          continue;
+        }
+        seenInCsv.add(emailLower);
+        contactsToInsert.push({ email, fieldsJson });
+      }
+    }
+
+    // Bulk insert in chunks of 200 using a transaction
+    if (contactsToInsert.length > 0) {
+      const insertTransaction = db.transaction(async (txDb) => {
+        const chunkSize = 200;
+        for (let i = 0; i < contactsToInsert.length; i += chunkSize) {
+          const chunk = contactsToInsert.slice(i, i + chunkSize);
+          const placeholders = chunk.map(() => '(?, ?, ?)').join(', ');
+          const sql = `INSERT INTO contacts (list_name, email, fields) VALUES ${placeholders}`;
+          const params = [];
+          chunk.forEach(c => {
+            params.push(listName, c.email, c.fieldsJson);
+          });
+          await txDb.prepare(sql).run(params);
+          added += chunk.length;
+        }
+      });
+      await insertTransaction();
+    }
 
     res.json({
       success: true,

@@ -152,10 +152,43 @@ function createSqliteAdapter() {
   const DB_PATH = path.join(__dirname, 'mailflow.db');
   let rawDb = null;
 
-  function save() {
+  // Debounced async save to avoid blocking the event loop on every write.
+  let saveTimer = null;
+  let saveInProgress = null;
+
+  async function doSave() {
     if (!rawDb) return;
     const data = rawDb.export();
-    fs.writeFileSync(DB_PATH, Buffer.from(data));
+    // writeFile returns a promise
+    saveInProgress = fs.promises.writeFile(DB_PATH, Buffer.from(data));
+    try {
+      await saveInProgress;
+    } finally {
+      saveInProgress = null;
+    }
+  }
+
+  function scheduleSave(delay = 1000) {
+    if (!rawDb) return;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      // fire and forget, errors logged
+      doSave().catch((err) => console.error('SQLite async save error', err));
+      saveTimer = null;
+    }, delay);
+  }
+
+  async function flushSave() {
+    if (!rawDb) return;
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      // ensure one final save
+      await doSave();
+    }
+    if (saveInProgress) {
+      await saveInProgress;
+    }
   }
 
   return (async () => {
@@ -173,16 +206,16 @@ function createSqliteAdapter() {
     const wrapped = {
       _isPg: false,
 
-      async close() {
-        save();
-        if (rawDb) {
-          rawDb.close();
-        }
-      },
+        async close() {
+          await flushSave();
+          if (rawDb) {
+            rawDb.close();
+          }
+        },
 
       async exec(sql) {
         rawDb.run(sql);
-        save();
+        scheduleSave();
       },
 
       prepare(sql) {
@@ -223,7 +256,7 @@ function createSqliteAdapter() {
             const flat = flattenParams(params);
             try {
               rawDb.run(sql, flat);
-              save();
+              scheduleSave();
               const info = rawDb.getRowsModified
                 ? rawDb.getRowsModified()
                 : 0;
@@ -249,7 +282,7 @@ function createSqliteAdapter() {
           try {
             const result = await fn(wrapped, ...args);
             rawDb.run('COMMIT');
-            save();
+            scheduleSave();
             return result;
           } catch (err) {
             rawDb.run('ROLLBACK');
@@ -259,7 +292,8 @@ function createSqliteAdapter() {
       },
     };
 
-    return { rawDb, wrapped, save };
+    // Expose flushSave as `save` for compatibility (returns a Promise)
+    return { rawDb, wrapped, save: flushSave };
   })();
 }
 
@@ -352,6 +386,7 @@ const SQLITE_DDL = `
     recipient_email TEXT,
     status TEXT,
     message TEXT,
+    queue_id INTEGER,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -400,6 +435,13 @@ const SQLITE_DDL = `
     created_at TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (campaign_id, recipient_email),
     FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS device_states (
+    device_id TEXT PRIMARY KEY,
+    ip_address TEXT,
+    state_data TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
   );
 `;
 
@@ -475,6 +517,7 @@ const PG_DDL = `
     recipient_email TEXT,
     status TEXT,
     message TEXT,
+    queue_id INTEGER,
     created_at TIMESTAMPTZ DEFAULT NOW()
   );
 
@@ -522,6 +565,13 @@ const PG_DDL = `
     created_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (campaign_id, recipient_email)
   );
+
+  CREATE TABLE IF NOT EXISTS device_states (
+    device_id TEXT PRIMARY KEY,
+    ip_address TEXT,
+    state_data TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
 `;
 
 // ============================================================================
@@ -529,7 +579,7 @@ const PG_DDL = `
 // ============================================================================
 
 ready = (async () => {
-  const usePg = !!process.env.DATABASE_URL;
+  const usePg = process.env.USE_SQLITE === 'true' ? false : !!process.env.DATABASE_URL;
 
   // Performance indexes (idempotent — safe to run on every startup)
   const INDEX_DDL = `
@@ -556,6 +606,9 @@ ready = (async () => {
       await adapter.exec("ALTER TABLE queue ADD COLUMN IF NOT EXISTS campaign_step_id INTEGER;");
     } catch (_) {}
     try {
+      await adapter.exec("ALTER TABLE logs ADD COLUMN IF NOT EXISTS queue_id INTEGER;");
+    } catch (_) {}
+    try {
       await adapter.exec(INDEX_DDL);
     } catch (_) {}
     console.log('PostgreSQL database initialised successfully.');
@@ -575,6 +628,9 @@ ready = (async () => {
     } catch (_) {}
     try {
       await wrapped.exec("ALTER TABLE queue ADD COLUMN campaign_step_id INTEGER;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE logs ADD COLUMN queue_id INTEGER;");
     } catch (_) {}
     try {
       await wrapped.exec(INDEX_DDL);

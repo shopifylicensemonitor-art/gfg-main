@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Mail, MessageCircle, HelpCircle, Shield, FileText, Info, Home, Instagram, Facebook, BarChart3 } from 'lucide-react';
+import { Mail, MessageCircle, HelpCircle, Shield, FileText, Info, Home, Instagram, Facebook, BarChart3, BookOpen } from 'lucide-react';
 
 export function Footer() {
   return (
@@ -43,6 +43,12 @@ export function Footer() {
             </Link>
             <Link to="/terms" className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 justify-center md:justify-start">
               <FileText className="h-3 w-3" /> Terms
+            </Link>
+            <Link to="/blog" className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 justify-center md:justify-start">
+              <BookOpen className="h-3 w-3" /> Blog
+            </Link>
+            <Link to="/blog/mastering-cold-email-deliverability" className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 justify-center md:justify-start">
+              <FileText className="h-3 w-3" /> Outreach Guide
             </Link>
           </div>
         </div>

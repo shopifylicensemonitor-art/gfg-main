@@ -25,6 +25,9 @@ const Templates = lazy(() => import("./pages/Templates"));
 const Contacts = lazy(() => import("./pages/Contacts"));
 const Logs = lazy(() => import("./pages/Logs"));
 
+const Blog = lazy(() => import("./pages/Blog"));
+const BlogPost = lazy(() => import("./pages/BlogPost"));
+
 // Use HashRouter in native apps (no server to handle URL paths),
 // BrowserRouter on web where Netlify handles routing.
 const Router = isNativePlatform() ? HashRouter : BrowserRouter;
@@ -88,6 +91,8 @@ const App = () => {
             <Route path="/help" element={<Help />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
+            <Route path="/blog" element={<Blog />} />
+            <Route path="/blog/:slug" element={<BlogPost />} />
             
             {/* Protected Peak Xender routes */}
             <Route 

@@ -27,6 +27,7 @@ import { extractEmailsFromText } from '@/hooks/useEmailList';
 import { toast } from '@/hooks/use-toast';
 import { PUBLIC_PROVIDERS } from '@/lib/publicProviders';
 import { buildMailtoLink } from '@/lib/randomizeMailto';
+import { CSVPreview } from './CSVPreview';
 
 interface FastMailSendProps {
   onAddEmails: (emails: string[]) => void;
@@ -70,6 +71,10 @@ interface FastMailSendProps {
   onLoadSavedList?: (listName: string) => void;
   autoScroll: boolean;
   onAutoScrollChange: (enabled: boolean) => void;
+  parsedCSV?: any;
+  uploadedFileName?: string;
+  csvMappings?: Record<string, string>;
+  onClearPreview?: () => void;
 }
 
 
@@ -115,6 +120,10 @@ export function FastMailSend({
   onLoadSavedList,
   autoScroll,
   onAutoScrollChange,
+  parsedCSV,
+  uploadedFileName,
+  csvMappings,
+  onClearPreview,
 }: FastMailSendProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -388,6 +397,16 @@ export function FastMailSend({
             </span>
           </div>
         )}
+        {parsedCSV && parsedCSV.headers && parsedCSV.headers.length > 0 && (
+          <div className="mt-3">
+            <CSVPreview
+              parsedCSV={parsedCSV}
+              fileName={uploadedFileName || ''}
+              mappings={csvMappings}
+              onClearPreview={onClearPreview}
+            />
+          </div>
+        )}
       </div>
 
       {/* Subject Line */}
@@ -417,7 +436,7 @@ export function FastMailSend({
             <Badge
               key={item.tag}
               variant="secondary"
-              className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card/50 hover:bg-primary/15 hover:text-primary hover:border-primary/20 transition-all cursor-pointer rounded"
+              className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card/50 text-foreground hover:bg-primary/15 hover:text-primary hover:border-primary/20 transition-all cursor-pointer rounded"
               onClick={() => {
                 const textarea = bodyRef.current;
                 if (!textarea) return;
@@ -645,10 +664,12 @@ export function FastMailSend({
         <Button
           variant="outline"
           onClick={() => setIsTestDialogOpen(true)}
-          className="px-4 h-11 rounded-xl border-primary/20 text-primary hover:bg-primary/5 hover:text-primary transition-all duration-200"
+          className="px-3 sm:px-4 h-11 rounded-xl border-primary/20 text-primary hover:bg-primary/5 hover:text-primary transition-all duration-200 flex items-center gap-2 font-bold text-xs uppercase tracking-wider"
           title="Send Test Email"
         >
-          <FlaskConical className="h-4 w-4 animate-float-slow" />
+          <FlaskConical className="h-5 w-5 animate-float-slow" />
+          <span className="inline sm:hidden">Test</span>
+          <span className="hidden sm:inline">Test Draft</span>
         </Button>
       </div>
       <p className="text-[9px] font-mono text-muted-foreground text-center -mt-2">Pro tip: Press <kbd className="bg-muted px-1.5 py-0.5 rounded border border-border">Ctrl+Enter</kbd> to compile instantly</p>

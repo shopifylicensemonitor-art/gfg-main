@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { SEO } from '@/components/SEO';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -113,6 +113,7 @@ export default function Landing() {
             <a href="#demo" className="hover:text-white transition-colors">Interactive Demo</a>
             <a href="#security" className="hover:text-white transition-colors">Security</a>
             <a href="#faq" className="hover:text-white transition-colors">FAQ</a>
+            <Link to="/blog" className="hover:text-white transition-colors">Blog</Link>
           </nav>
 
           <div className="flex items-center gap-3">
@@ -477,9 +478,10 @@ export default function Landing() {
             <span>Peak Xender Outreach Console v3.4.0</span>
           </div>
           <div className="flex gap-4">
-            <a href="/privacy" className="hover:text-slate-300">Privacy</a>
-            <a href="/terms" className="hover:text-slate-300">Terms</a>
-            <a href="/contact" className="hover:text-slate-300">Support</a>
+            <Link to="/blog" className="hover:text-slate-300">Blog</Link>
+            <Link to="/privacy" className="hover:text-slate-300">Privacy</Link>
+            <Link to="/terms" className="hover:text-slate-300">Terms</Link>
+            <Link to="/contact" className="hover:text-slate-300">Support</Link>
           </div>
         </div>
       </footer>

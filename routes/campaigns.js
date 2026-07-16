@@ -201,6 +201,109 @@ router.delete('/:id', async (req, res) => {
 });
 
 /**
+ * Create campaign from CSV data (AutoHotkey integration endpoint).
+ * Accepts: campaign name, subjects, recipients (CSV rows), HTML template, optional account_id.
+ * Creates campaign in draft status and queues all recipients atomically.
+ */
+router.post('/create-from-csv', async (req, res) => {
+  const {
+    name,
+    subjects = [],
+    recipients = [],  // array of objects: { email, ...fields }
+    html_template = '',
+    account_id = null,
+    delay_seconds = 30,
+    start_time = '08:00',
+    end_time = '22:00',
+  } = req.body;
+
+  if (!name || recipients.length === 0) {
+    return res.status(400).json({ error: 'Campaign name and recipients array are required.' });
+  }
+
+  try {
+    const db = await getDb();
+
+    // If account_id is specified, verify it exists and is active
+    let accountsForRoundRobin = [];
+    if (account_id) {
+      const acct = await db.prepare('SELECT id FROM accounts WHERE id = ? AND status = \'active\'').get(account_id);
+      if (!acct) {
+        return res.status(400).json({ error: `Account ${account_id} not found or inactive.` });
+      }
+      accountsForRoundRobin = [acct];
+    } else {
+      // Get all active accounts for round-robin
+      accountsForRoundRobin = await db.prepare(
+        "SELECT id FROM accounts WHERE status = 'active'"
+      ).all();
+      if (accountsForRoundRobin.length === 0) {
+        return res.status(400).json({ error: 'No active sender accounts available.' });
+      }
+    }
+
+    // Build subject string (semicolon-separated or newline-separated)
+    const subjectString = Array.isArray(subjects) ? subjects.join(';') : subjects.toString();
+
+    // Create campaign in draft mode, atomically with queue
+    const createFromCsvTx = db.transaction(async (txDb) => {
+      const result = await txDb.prepare(`
+        INSERT INTO campaigns
+          (name, subject, body_html, status, delay_seconds, start_time, end_time, total_contacts)
+        VALUES (?, ?, ?, 'draft', ?, ?, ?, ?)
+      `).run(name, subjectString, html_template, delay_seconds, start_time, end_time, recipients.length);
+
+      const campaignId = result.lastInsertRowid;
+
+      // Queue all recipients with round-robin account assignment
+      const now = new Date();
+      let currentScheduledTime = now.getTime();
+
+      for (let index = 0; index < recipients.length; index++) {
+        const recipient = recipients[index];
+        const recipEmail = recipient.email || '';
+        if (!recipEmail) continue;  // Skip rows without email
+
+        const accountId = accountsForRoundRobin[index % accountsForRoundRobin.length].id;
+
+        // Random spacing 30-90 seconds
+        const spacingSeconds = Math.floor(Math.random() * (90 - 30 + 1)) + 30;
+        if (index > 0) {
+          currentScheduledTime += spacingSeconds * 1000;
+        }
+
+        const scheduledAt = new Date(currentScheduledTime);
+
+        // Serialize recipient fields as JSON
+        const fieldsJson = JSON.stringify(
+          Object.keys(recipient).reduce((acc, key) => {
+            if (key !== 'email') acc[key] = recipient[key];
+            return acc;
+          }, {})
+        );
+
+        await txDb.prepare(`
+          INSERT INTO queue (campaign_id, recipient_email, account_id, status, scheduled_at, fields)
+          VALUES (?, ?, ?, 'pending', ?, ?)
+        `).run(campaignId, recipEmail, accountId, scheduledAt.toISOString(), fieldsJson);
+      }
+
+      return campaignId;
+    });
+
+    const campaignId = await createFromCsvTx();
+
+    res.json({
+      success: true,
+      campaign_id: campaignId,
+      message: `Campaign "${name}" created with ${recipients.length} recipients queued (draft mode).`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * Launch a campaign — populate the queue with all contacts.
  * Uses round-robin account assignment.
  */

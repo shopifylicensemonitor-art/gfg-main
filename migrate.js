@@ -79,6 +79,7 @@ const DDL = `
     id SERIAL PRIMARY KEY,
     campaign_id INTEGER,
     account_id INTEGER,
+    queue_id INTEGER,
     recipient_email TEXT,
     status TEXT,
     message TEXT,
@@ -102,6 +103,13 @@ const DDL = `
     role TEXT DEFAULT 'admin',
     last_login TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS device_states (
+    device_id TEXT PRIMARY KEY,
+    ip_address TEXT,
+    state_data TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
   );
 
   -- Performance indexes

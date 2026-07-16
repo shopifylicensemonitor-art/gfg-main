@@ -262,3 +262,20 @@ export function extractEmailsAndUrlsFromCell(cellValue: string): { emails: strin
 
   return { emails: emailCandidates, url: extractedUrl };
 }
+
+/**
+ * Formats parsed headers and rows back into a standard CSV string
+ */
+export function convertToCSV(headers: string[], rows: Record<string, string>[]): string {
+  const escapeField = (val: any): string => {
+    const s = String(val ?? '');
+    if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r') || s.includes(';')) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+  
+  const headerLine = headers.map(escapeField).join(',');
+  const rowLines = rows.map(row => headers.map(h => escapeField(row[h] || '')).join(','));
+  return [headerLine, ...rowLines].join('\n');
+}

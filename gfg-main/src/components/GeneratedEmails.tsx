@@ -75,7 +75,8 @@ const Row = memo(
     const entry = entries[index];
     if (!entry) return <></>;
 
-    const isSent = !!sentStatus[entry.email];
+    const activeListName = entry.listName || 'default';
+    const isSent = !!sentStatus[`${activeListName}:${entry.email.toLowerCase()}`];
     const isValid = entry.isValid;
 
     const handleClick = (e: React.MouseEvent) => {
@@ -205,7 +206,7 @@ const Row = memo(
           </div>
 
           {isValid && (
-            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-x-2 group-hover:translate-x-0">
+            <div className="flex items-center gap-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-300 transform translate-x-0 sm:translate-x-2 sm:group-hover:translate-x-0">
               {isSent ? (
                 <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 text-[9px] h-6.5 px-2 font-bold uppercase tracking-wider animate-bounce-spring flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -455,7 +456,11 @@ export function GeneratedEmails({
   }, [emails, searchQuery]);
 
   const pendingValid = useMemo(() => {
-    return searchFiltered.filter(e => !sentStatus[e.email] && e.isValid);
+    return searchFiltered.filter(e => {
+      const activeListName = e.listName || 'default';
+      const key = `${activeListName}:${e.email.toLowerCase()}`;
+      return !sentStatus[key] && e.isValid;
+    });
   }, [searchFiltered, sentStatus]);
 
   // Pre-computed static batches of all valid emails to prevent dynamic list-shifting
@@ -472,7 +477,11 @@ export function GeneratedEmails({
   const filteredBatches = useMemo(() => {
     if (filter === 'all') return fixedBatches;
     return fixedBatches.filter(batch => {
-      const isBatchSent = batch.every(e => sentStatus[e.email]);
+      const isBatchSent = batch.every(e => {
+        const activeListName = e.listName || 'default';
+        const key = `${activeListName}:${e.email.toLowerCase()}`;
+        return sentStatus[key];
+      });
       if (filter === 'sent') return isBatchSent;
       if (filter === 'pending') return !isBatchSent;
       return true;
@@ -481,17 +490,29 @@ export function GeneratedEmails({
 
   // List of active pending batches for the "Open Batches" sequential trigger
   const pendingBatches = useMemo(() => {
-    return fixedBatches.filter(batch => !batch.every(e => sentStatus[e.email]));
+    return fixedBatches.filter(batch => !batch.every(e => {
+      const activeListName = e.listName || 'default';
+      const key = `${activeListName}:${e.email.toLowerCase()}`;
+      return sentStatus[key];
+    }));
   }, [fixedBatches, sentStatus]);
 
   // Layer 2: Status Filter (re-runs when status changes, but only if filter is not 'all')
   const statusFiltered = useMemo(() => {
     if (filter === 'all') return searchFiltered;
     if (filter === 'pending') {
-      return searchFiltered.filter(e => !sentStatus[e.email] && e.isValid);
+      return searchFiltered.filter(e => {
+        const activeListName = e.listName || 'default';
+        const key = `${activeListName}:${e.email.toLowerCase()}`;
+        return !sentStatus[key] && e.isValid;
+      });
     }
     if (filter === 'sent') {
-      return searchFiltered.filter(e => !!sentStatus[e.email] && e.isValid);
+      return searchFiltered.filter(e => {
+        const activeListName = e.listName || 'default';
+        const key = `${activeListName}:${e.email.toLowerCase()}`;
+        return !!sentStatus[key] && e.isValid;
+      });
     }
     return searchFiltered;
   }, [searchFiltered, filter, sentStatus]);
@@ -553,13 +574,42 @@ export function GeneratedEmails({
     setSort(prev => prev === 'default' ? 'az' : prev === 'az' ? 'za' : 'default');
   }, []);
 
-  // Export current filtered list as CSV
+  // Export current filtered list as CSV (includes all custom fields)
   const handleExport = useCallback(() => {
-    const csvContent = 'email,status,domain_type\n' + filteredEmails.map(e => {
+    // Collect all unique custom field keys across all entries
+    const customKeys = new Set<string>();
+    for (const e of filteredEmails) {
+      if (e.fields) {
+        Object.keys(e.fields).forEach(k => customKeys.add(k));
+      }
+    }
+    const customKeysArr = Array.from(customKeys);
+
+    // Build header row
+    const headerCols = ['email', 'status', 'domain_type', ...customKeysArr];
+    const headerRow = headerCols.join(',');
+
+    // Build data rows
+    const dataRows = filteredEmails.map(e => {
       const domain = e.email.split('@')[1]?.toLowerCase();
       const type = domain && PUBLIC_PROVIDERS.has(domain) ? 'public' : 'personal';
-      return `${e.email},${sentStatus[e.email] ? 'sent' : 'pending'},${type}`;
+      const activeListName = e.listName || 'default';
+      const status = sentStatus[`${activeListName}:${e.email.toLowerCase()}`] ? 'sent' : 'pending';
+
+      const baseCols = [e.email, status, type];
+      const customCols = customKeysArr.map(k => {
+        const val = e.fields?.[k] || '';
+        // Escape values containing commas or quotes
+        if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+          return `"${val.replace(/"/g, '""')}"`;
+        }
+        return val;
+      });
+
+      return [...baseCols, ...customCols].join(',');
     }).join('\n');
+
+    const csvContent = headerRow + '\n' + dataRows;
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -767,8 +817,8 @@ export function GeneratedEmails({
 
       {/* Domain filter row */}
       {!isBatchMode && (
-        <div className="flex items-center gap-1.5 shrink-0">
-        <span className="text-[10px] text-muted-foreground/70 mr-1">Domain:</span>
+        <div className="flex flex-wrap items-center gap-1.5 shrink-0 py-1">
+          <span className="text-[10px] text-muted-foreground/70 mr-1">Domain:</span>
         <Button
           variant={domainFilter === 'all' ? 'secondary' : 'ghost'}
           size="sm"

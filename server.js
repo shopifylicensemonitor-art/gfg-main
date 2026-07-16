@@ -37,11 +37,25 @@ const strictLimiter = rateLimit({
 // ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
-const allowedOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
-app.use(cors({
-  origin: [allowedOrigin, 'http://localhost:5173', 'https://peak-x-sender-v3-test.netlify.app'],
+const allowedOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:8080';
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    
+    // Support localhost (any port), loopback, local network IPs (e.g. 192.168.x.x, 10.x.x.x, 172.16-31.x.x, 169.254.x.x) on standard frontend ports
+    const isLocalhost = /^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
+    const isLocalNetwork = /^http:\/\/(?:192\.168|10|172\.(?:1[6-9]|2\d|3[0-1])|169\.254)\.\d+\.\d+(:\d+)?$/.test(origin);
+    const isAllowedWeb = origin === 'https://peak-x-sender-v3-test.netlify.app' || origin === allowedOrigin;
+    
+    if (isLocalhost || isLocalNetwork || isAllowedWeb) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  },
   credentials: true
-}));
+};
+app.use(cors(corsOptions));
 
 // Request logger middleware
 app.use((req, res, next) => {
@@ -49,8 +63,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '5mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Serve the React frontend (production build) from gfg-main/dist
 app.use(express.static(path.join(__dirname, 'gfg-main', 'dist')));
@@ -185,8 +199,22 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   // Wait for DB to be fully initialised before accepting requests
   await getDb();
 
+  const os = require('os');
+  const networkInterfaces = os.networkInterfaces();
+  const localIps = [];
+  for (const interfaceName in networkInterfaces) {
+    for (const iface of networkInterfaces[interfaceName]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        localIps.push(iface.address);
+      }
+    }
+  }
+
   server = app.listen(PORT, () => {
     logger.info(`Peak Xender server running on http://localhost:${PORT}`);
+    localIps.forEach(ip => {
+      logger.info(`  Network:   http://${ip}:${PORT}`);
+    });
     logger.info(`API endpoints: http://localhost:${PORT}/api/health`);
   });
 

@@ -567,9 +567,14 @@ export default function Accounts({ requirePin }: AccountsProps) {
             <Button
               onClick={handleConnectSmtp}
               disabled={smtpTesting}
-              className="rounded-xl peak-gradient-bg border-none text-white font-semibold h-10 px-6 w-full sm:w-auto shadow-md shadow-primary/20"
+              className="rounded-xl peak-gradient-bg border-none text-white font-semibold h-10 px-6 w-full sm:w-auto shadow-md shadow-primary/20 flex items-center justify-center gap-2"
             >
-              {smtpTesting ? 'Verifying...' : 'Verify & Save'}
+              {smtpTesting ? (
+                <RefreshCw className="h-5 w-5 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-5 w-5" />
+              )}
+              <span>{smtpTesting ? 'Verifying...' : 'Verify & Save'}</span>
             </Button>
           </DialogFooter>
         </DialogContent>

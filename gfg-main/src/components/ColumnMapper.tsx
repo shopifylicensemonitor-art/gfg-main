@@ -135,7 +135,7 @@ export function ColumnMapper({ isOpen, onClose, parsedCSV, fileName, onConfirm }
                 <Badge key={v.value} variant="secondary" className={`font-mono text-[9px] px-2 py-0.5 border bg-card/60 ${
                   dynamicVariables.some(d => d.value === v.value)
                     ? 'border-primary/30 text-primary'
-                    : 'border-border'
+                    : 'border-border text-foreground'
                 }`}>
                   {`{{${v.value}}}`}
                 </Badge>

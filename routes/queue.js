@@ -22,7 +22,10 @@ router.get('/logs/recent', async (req, res) => {
       FROM logs l
       LEFT JOIN accounts a ON l.account_id = a.id
       LEFT JOIN campaigns c ON l.campaign_id = c.id
-      LEFT JOIN queue q ON l.campaign_id = q.campaign_id AND l.recipient_email = q.recipient_email
+      LEFT JOIN queue q ON q.id = COALESCE(
+        l.queue_id,
+        (SELECT id FROM queue WHERE campaign_id = l.campaign_id AND recipient_email = l.recipient_email LIMIT 1)
+      )
       ORDER BY l.created_at DESC
       LIMIT ?
     `).all(limit);

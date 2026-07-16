@@ -432,10 +432,10 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    <span className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card rounded-md">
+                    <span className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card text-foreground rounded-md">
                       {"{{email}}"}
                     </span>
-                    <span className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card rounded-md">
+                    <span className="font-mono text-[9px] px-2 py-0.5 border border-border bg-card text-foreground rounded-md">
                       {"{{date}}"}
                     </span>
                     {listTokens.map(token => (

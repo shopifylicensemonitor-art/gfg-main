@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { parseEmailsText } from '@/lib/emailParser';
+import { parseCSV, suggestFieldMapping, normalizeHeaderKey, extractEmailsAndUrlsFromCell } from '@/lib/csvParser';
 
 export interface EmailEntry {
   id: string;
@@ -9,6 +10,7 @@ export interface EmailEntry {
   name?: string;
   isValid: boolean;
   fields?: Record<string, string>;
+  listName?: string;
 }
 
 const STORAGE_KEY = 'bulk-email-sent-status';
@@ -22,11 +24,132 @@ export const extractEmailsFromText = (text: string): string[] => {
   return Array.from(new Set(matches.map(email => email.trim().toLowerCase())));
 };
 
+export function parseEmailsTextWithFields(text: string): EmailEntry[] {
+  if (!text) return [];
+
+  // Load csvMappings from localStorage to apply custom mapped variables
+  let mappings: Record<string, string> = {};
+  try {
+    const stored = localStorage.getItem('peakx-csv-mappings');
+    if (stored) mappings = JSON.parse(stored);
+  } catch (e) {
+    // Ignore JSON parsing issues
+  }
+
+  // Parse using client-side CSV parser
+  const parsed = parseCSV(text);
+  
+  if (parsed.headers.length > 0 && parsed.rows.length > 0) {
+    // 1. Detect the email column
+    let emailCol = parsed.headers.find(h => suggestFieldMapping(h) === 'email');
+    if (!emailCol) {
+      emailCol = parsed.headers.find(h => h.toLowerCase().includes('email'));
+    }
+    if (!emailCol) {
+      const emailRegex = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+      for (const header of parsed.headers) {
+        const hasEmail = parsed.rows.slice(0, 5).some(row => emailRegex.test(row[header] || ''));
+        if (hasEmail) {
+          emailCol = header;
+          break;
+        }
+      }
+    }
+
+    if (emailCol) {
+      // Build headers mapping
+      const finalMappings: Record<string, string> = {};
+      parsed.headers.forEach(header => {
+        if (mappings[header]) {
+          finalMappings[header] = mappings[header];
+        } else {
+          if (header === emailCol) {
+            finalMappings[header] = 'email';
+          } else {
+            const suggested = suggestFieldMapping(header);
+            if (suggested && suggested !== 'email') {
+              finalMappings[header] = suggested;
+            } else {
+              finalMappings[header] = normalizeHeaderKey(header);
+            }
+          }
+        }
+      });
+
+      const emailColKey = emailCol;
+      const firstNameCol = Object.keys(finalMappings).find(key => finalMappings[key] === 'first_name');
+      const storeNameCol = Object.keys(finalMappings).find(key => finalMappings[key] === 'store_name');
+      const nicheCol = Object.keys(finalMappings).find(key => finalMappings[key] === 'niche');
+      const painPointCol = Object.keys(finalMappings).find(key => finalMappings[key] === 'pain_point');
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      let seq = 1;
+
+      return parsed.rows.flatMap(row => {
+        const rawEmailCell = row[emailColKey]?.trim() || '';
+        if (!rawEmailCell) return [];
+
+        const { emails: emailCandidates, url: extractedUrl } = extractEmailsAndUrlsFromCell(rawEmailCell);
+
+        // Build fields
+        const fields: Record<string, string> = {};
+        if (firstNameCol) fields['first_name'] = row[firstNameCol] || '';
+        if (storeNameCol) fields['store_name'] = row[storeNameCol] || '';
+        if (nicheCol) fields['niche'] = row[nicheCol] || '';
+        if (painPointCol) fields['pain_point'] = row[painPointCol] || '';
+
+        if (extractedUrl) {
+          fields['store_url'] = extractedUrl;
+          if (!fields['store_name']) {
+            fields['store_name'] = extractedUrl;
+          }
+        }
+
+        // Copy custom columns
+        Object.keys(finalMappings).forEach(key => {
+          const val = finalMappings[key];
+          if (val !== 'skip' && val !== 'email' && val !== 'first_name' && val !== 'store_name' && val !== 'niche' && val !== 'pain_point') {
+            fields[val] = row[key] || '';
+          }
+        });
+
+        const name = fields['first_name'] || undefined;
+
+        return emailCandidates.map(email => {
+          const isValid = emailRegex.test(email);
+          const currentSeq = seq++;
+          return {
+            id: String(currentSeq),
+            sequenceId: currentSeq,
+            email,
+            name,
+            isValid,
+            fields: { ...fields }
+          };
+        });
+      });
+    }
+  }
+
+  // Fallback: parse using parseEmailsText
+  const parsedSimple = parseEmailsText(text);
+  return parsedSimple.map((p, idx) => {
+    const seq = idx + 1;
+    return {
+      id: String(seq),
+      sequenceId: seq,
+      email: p.email,
+      name: p.name,
+      isValid: true,
+    };
+  });
+}
+
 // ── Compact LocalStorage Serialization Helpers ─────────────────────
 function serializeEmails(entries: EmailEntry[]): string {
   return entries.map(e => {
     const fieldsStr = e.fields ? JSON.stringify(e.fields) : '';
-    return `${e.sequenceId}|${e.email}|${e.name || ''}|${e.isValid ? 1 : 0}|${fieldsStr}`;
+    return `${e.sequenceId}|${e.email}|${e.name || ''}|${e.isValid ? 1 : 0}|${fieldsStr}|${e.listName || ''}`;
   }).join('\n');
 }
 
@@ -57,13 +180,15 @@ function deserializeEmails(stored: string): EmailEntry[] {
           // Ignore parsing issues
         }
       }
+      const listName = parts[5] || undefined;
       entries.push({
         id: String(sequenceId),
         sequenceId,
         email,
         name,
         isValid,
-        fields
+        fields,
+        listName
       });
     }
   }
@@ -160,23 +285,57 @@ export function useEmailList() {
     return () => clearTimeout(timer);
   }, [sentStatus]);
 
-  const replaceEmails = useCallback((text: string, onComplete?: (emails: EmailEntry[]) => void, isCSV: boolean = false) => {
-    const parsed = parseEmailsText(text, isCSV);
+  const replaceEmails = useCallback((
+    text: string, 
+    onComplete?: (emails: EmailEntry[]) => void, 
+    isCSV: boolean = false,
+    filterSent: boolean = false
+  ) => {
+    const parsed = parseEmailsTextWithFields(text);
+    
+    // Create a map of existing emails to their entry
+    const existingMap = new Map<string, EmailEntry>();
+    emails.forEach(e => {
+      existingMap.set(e.email.toLowerCase(), e);
+    });
+
     let seq = 1;
-    const newEntries: EmailEntry[] = parsed.map(p => {
-      const currentSeq = seq++;
+    let newEntries: EmailEntry[] = parsed.map(p => {
+      const emailLower = p.email.toLowerCase();
+      const existing = existingMap.get(emailLower);
       return {
-        id: String(currentSeq),
-        sequenceId: currentSeq,
+        id: '', // Will set below
+        sequenceId: 0, // Will set below
         email: p.email,
-        name: p.name,
-        isValid: true,
+        name: p.name || existing?.name,
+        isValid: p.isValid,
+        fields: p.fields || existing?.fields,
+        listName: p.listName || existing?.listName || 'default',
       };
     });
+
+    if (filterSent) {
+      newEntries = newEntries.filter(e => {
+        const activeListName = e.listName || 'default';
+        const key = `${activeListName}:${e.email.toLowerCase()}`;
+        return !sentStatus[key];
+      });
+    }
+
+    // Assign IDs and sequence IDs
+    newEntries = newEntries.map(e => {
+      const currentSeq = seq++;
+      return {
+        ...e,
+        id: String(currentSeq),
+        sequenceId: currentSeq,
+      };
+    });
+
     setEmails(newEntries);
     setNextSequenceId(newEntries.length + 1);
     if (onComplete) onComplete(newEntries);
-  }, []);
+  }, [emails, sentStatus]);
 
   const replaceEmailEntries = useCallback((entries: EmailEntry[], onComplete?: (emails: EmailEntry[]) => void) => {
     setEmails(entries);
@@ -204,21 +363,29 @@ export function useEmailList() {
 
   const markAsSent = useCallback((email: string) => {
     setSentStatus((prev) => {
-      if (prev[email]) return prev; // Already sent — no-op, no new object
+      const matched = emails.find(e => e.email.toLowerCase() === email.toLowerCase());
+      const activeListName = matched?.listName || 'default';
+      const key = `${activeListName}:${email.toLowerCase()}`;
+      
+      if (prev[key]) return prev; // Already sent — no-op
       const next = Object.assign({}, prev);
-      next[email] = true;
+      next[key] = true;
       setCumulativeSent(c => c + 1);
       return next;
     });
-  }, []);
+  }, [emails]);
 
   const markBatchAsSent = useCallback((emailsList: string[]) => {
     setSentStatus((prev) => {
       const next = Object.assign({}, prev);
       let count = 0;
       for (const email of emailsList) {
-        if (!next[email]) {
-          next[email] = true;
+        const matched = emails.find(e => e.email.toLowerCase() === email.toLowerCase());
+        const activeListName = matched?.listName || 'default';
+        const key = `${activeListName}:${email.toLowerCase()}`;
+        
+        if (!next[key]) {
+          next[key] = true;
           count++;
         }
       }
@@ -228,7 +395,7 @@ export function useEmailList() {
       }
       return prev;
     });
-  }, []);
+  }, [emails]);
 
   const clearAllEmails = useCallback(() => {
     setEmails([]);
@@ -245,7 +412,9 @@ export function useEmailList() {
   const { sentCount, totalCount } = useMemo(() => {
     let count = 0;
     for (const e of emails) {
-      if (sentStatus[e.email]) count++;
+      const activeListName = e.listName || 'default';
+      const key = `${activeListName}:${e.email.toLowerCase()}`;
+      if (sentStatus[key]) count++;
     }
     return { sentCount: count, totalCount: emails.length };
   }, [emails, sentStatus]);

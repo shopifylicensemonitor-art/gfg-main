@@ -1,3 +1,9 @@
 {
-    "files.autoSave": "afterDelay"
+    "files.autoSave": "afterDelay",
+    "chat.tools.terminal.autoApprove": {
+        "/^\\$env:USE_SQLITE='true'; \\$env:LOG_LEVEL='debug'; node server\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
 }

@@ -30,7 +30,7 @@ export function AppShell({ children }: AppShellProps) {
         <TopBar onOpenSidebar={() => setIsMobileSidebarOpen(true)} />
 
         {/* Content Area */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto px-6 py-6 max-w-5xl w-full mx-auto animate-fade-in pb-16">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto px-3 sm:px-6 py-4 sm:py-6 max-w-5xl w-full mx-auto animate-fade-in pb-16">
           {children}
         </main>
       </div>

@@ -15,6 +15,8 @@ const { google } = require('googleapis');
 const nodemailer = require('nodemailer');
 const { getDb } = require('../db');
 
+// Cache SMTP transports per account to reuse connections and enable pooling
+const transportCache = new Map();
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -57,15 +59,36 @@ async function ensureFreshToken(account) {
  * Create a Nodemailer transport from an SMTP account row.
  */
 function createSmtpTransport(account) {
-  return nodemailer.createTransport({
-    host: account.smtp_host,
-    port: account.smtp_port || 587,
-    secure: !!account.smtp_secure, // true = SSL/TLS (465), false = STARTTLS
-    auth: {
-      user: account.smtp_user,
-      pass: account.smtp_pass,
-    },
-  });
+  // If account object has an id, cache the transport to reuse connections
+  try {
+    const key = account && account.id ? String(account.id) : null;
+    if (key && transportCache.has(key)) return transportCache.get(key);
+
+    const transport = nodemailer.createTransport({
+      host: account.smtp_host,
+      port: account.smtp_port || 587,
+      secure: !!account.smtp_secure, // true = SSL/TLS (465), false = STARTTLS
+      auth: {
+        user: account.smtp_user,
+        pass: account.smtp_pass,
+      },
+      // Enable pooling to avoid reconnect on every send
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100,
+    });
+
+    if (key) transportCache.set(key, transport);
+    return transport;
+  } catch (err) {
+    // Fallback to simple transport if something goes wrong
+    return nodemailer.createTransport({
+      host: account.smtp_host,
+      port: account.smtp_port || 587,
+      secure: !!account.smtp_secure,
+      auth: { user: account.smtp_user, pass: account.smtp_pass },
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -140,14 +163,258 @@ router.get('/callback', async (req, res) => {
       `).run(email, tokens.access_token, tokens.refresh_token, tokens.expiry_date);
     }
 
-    const frontendUrl = process.env.FRONTEND_ORIGIN || '';
-    // Redirect back to the frontend dashboard
-    res.redirect(frontendUrl + '/?account_added=' + encodeURIComponent(email));
+    // Return a beautiful self-closing HTML success page
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Account Connected | Peak Xender</title>
+        <style>
+          body {
+            background: radial-gradient(circle at center, #0f172a, #020617);
+            color: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+          }
+          .card {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 24px;
+            padding: 40px;
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            position: relative;
+          }
+          .card::before {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; right: -2px; bottom: -2px;
+            background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
+            border-radius: 26px;
+            z-index: -1;
+            opacity: 0.15;
+          }
+          .icon-container {
+            width: 72px;
+            height: 72px;
+            border-radius: 20px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            color: #10b981;
+          }
+          h2 {
+            font-size: 22px;
+            font-weight: 800;
+            margin: 0 0 12px;
+            background: linear-gradient(to right, #ffffff, #cbd5e1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+          }
+          p {
+            color: #94a3b8;
+            font-size: 14px;
+            line-height: 1.6;
+            margin: 0 0 24px;
+          }
+          .email {
+            font-family: monospace;
+            color: #818cf8;
+            background: rgba(129, 140, 248, 0.1);
+            padding: 4px 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(129, 140, 248, 0.2);
+          }
+          .countdown {
+            font-size: 12px;
+            color: #64748b;
+          }
+          .btn {
+            background: linear-gradient(to right, #4f46e5, #7c3aed);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 12px 24px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3);
+            transition: all 0.2s;
+          }
+          .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 20px -3px rgba(79, 70, 229, 0.4);
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div class="icon-container">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+          </div>
+          <h2>Connection Successful</h2>
+          <p>The Gmail account <span class="email">${email}</span> has been connected to Peak Xender.</p>
+          <button class="btn" onclick="window.close()">Close Window</button>
+          <div class="countdown" style="margin-top: 20px;">Closing automatically in <span id="secs">4</span>s...</div>
+        </div>
+        <script>
+          try {
+            if (window.opener) {
+              window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS', email: '${email}' }, '*');
+            }
+          } catch (e) {}
+
+          let secs = 4;
+          const interval = setInterval(() => {
+            secs--;
+            document.getElementById('secs').textContent = secs;
+            if (secs <= 0) {
+              clearInterval(interval);
+              window.close();
+            }
+          }, 1000);
+        </script>
+      </body>
+      </html>
+    `);
   } catch (err) {
     const logger = require('../logger');
     logger.error({ err: err.message }, 'OAuth callback error');
-    const frontendUrl = process.env.FRONTEND_ORIGIN || '';
-    res.redirect(frontendUrl + '/?account_error=' + encodeURIComponent(err.message));
+    
+    // Return a beautiful self-closing HTML error page
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Connection Failed | Peak Xender</title>
+        <style>
+          body {
+            background: radial-gradient(circle at center, #0f172a, #020617);
+            color: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+          }
+          .card {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 24px;
+            padding: 40px;
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            position: relative;
+          }
+          .card::before {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; right: -2px; bottom: -2px;
+            background: linear-gradient(135deg, #ef4444, #f97316);
+            border-radius: 26px;
+            z-index: -1;
+            opacity: 0.15;
+          }
+          .icon-container {
+            width: 72px;
+            height: 72px;
+            border-radius: 20px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            color: #ef4444;
+          }
+          h2 {
+            font-size: 22px;
+            font-weight: 800;
+            margin: 0 0 12px;
+            background: linear-gradient(to right, #ffffff, #cbd5e1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+          }
+          p {
+            color: #94a3b8;
+            font-size: 14px;
+            line-height: 1.6;
+            margin: 0 0 24px;
+          }
+          .error-msg {
+            font-family: monospace;
+            color: #f87171;
+            background: rgba(239, 68, 68, 0.05);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(239, 68, 68, 0.1);
+            word-break: break-all;
+            max-height: 120px;
+            overflow-y: auto;
+          }
+          .btn {
+            background: #334155;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 12px 24px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+          }
+          .btn:hover {
+            background: #475569;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div class="icon-container">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </div>
+          <h2>Connection Failed</h2>
+          <p>We could not link your Gmail account at this time.</p>
+          <p class="error-msg">${err.message}</p>
+          <button class="btn" onclick="window.close()">Close Window</button>
+        </div>
+        <script>
+          try {
+            if (window.opener) {
+              window.opener.postMessage({ type: 'GOOGLE_AUTH_ERROR', error: '${err.message.replace(/'/g, "\\'")}' }, '*');
+            }
+          } catch (e) {}
+        </script>
+      </body>
+      </html>
+    `);
   }
 });
 

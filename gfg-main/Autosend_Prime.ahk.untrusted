@@ -1,0 +1,2013 @@
+; ============================================================
+; Gmail Auto-Send v8.7 (Unified Master Dashboard)
+; Fixed Inline Token Insertion & Smooth Subject Auto-Numbering
+; ============================================================
+
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+CoordMode "Mouse", "Screen"
+
+global SettingsFile := A_ScriptDir "\gmail_autosend_settings.ini"
+global LogFile      := A_ScriptDir "\autosend_log.txt"
+global SentLogFile  := A_ScriptDir "\sent_log.csv"
+global SubjectsFile := A_ScriptDir "\gmail_subjects.txt"
+global EmailsFile   := A_ScriptDir "\gmail_emails.txt"
+
+; --- Delays / Coords ---
+global PasteDelay        := 1500
+global SubjectDelay      := 1500
+global AutoCompleteDelay := 2000
+global ConfDelay         := 1500
+global SaveDelay         := 1500
+global SendDelay         := 2500
+global LoopDelay         := 1000
+global RandVariation     := 300
+global BodyPasteDelay    := 2000
+global ComposeX          := 500
+global ComposeY          := 300
+global ConfX             := 1100
+global ConfY             := 706
+global SaveX             := 868
+global SaveY             := 570
+global BodyX             := 700
+global BodyY             := 500
+
+; --- Options ---
+global ConfidentialMode   := 1
+global UseSubjectRotation := 1
+global DarkTheme          := 1
+global AutoPauseOnFocus   := 0
+global UseHtmlBody        := 0
+global UseTemplateRotation := 0   ; A/B rotate templates per row
+global TemplateRotList     := "1,2" ; which templates to rotate (comma-separated)
+global ShowSessionStats    := 1   ; Show stats popup on finish/stop
+global SessionStartTime    := 0   ; epoch ms when campaign started
+global CampaignMode       := 1   
+global CurrentTemplateIdx := 1   
+
+; --- State ---
+global Running       := false
+global Paused        := false
+global PickingTarget := ""
+global SubjectIndex  := 1
+global Subjects      := []
+global Emails        := []
+global EmailIndex    := 1
+global EmailCount    := 0
+global ResumeIndex   := 1
+global CurrentZoom   := 100
+global LastFocusedEdit := "subject" ; MEMORY TRACKER FOR TOKENS
+
+; --- CSV State ---
+global CsvFile       := ""
+global CsvHeaders    := []      
+global CsvRows       := []      
+global CsvRowCount   := 0
+global PreviewIndex  := 1       
+global ActiveCsvQueue := [] 
+
+; --- UI Globals ---
+global MainTabs, MyGui, ToastGui
+global StatusText, CounterLabel, ProgressBar, ProgressPctLabel, BtnStart, BtnResume, BtnPause, BtnStop
+global ResumeRowEdit
+global TestEmailInput, TestRowEdit, TestSendStatusLbl
+global CsvModeRadio, LegacyModeRadio, BrowseCsvBtn, CsvFileLabel, CsvLoadedLabel
+global CsvVarList, HtmlCodeBox, PreviewBrowser, ZoomLbl, TemplateSelectDD
+global FindInput, FindMatchLbl
+global FindLastPos := 0, FindLastDir := 1
+global ConfModeChk, SubjectRotChk, AutoPauseChk, UseHtmlChk
+global ComposeCoordLabel, ConfCoordLabel, SaveCoordLabel, BodyCoordLabel
+global PasteDelayEdit, SubjectDelayEdit, AutoCompleteDelayEdit, ConfDelayEdit, SaveDelayEdit, SendDelayEdit, LoopDelayEdit, RandVarEdit, BodyPasteDelayEdit
+global EmailBox, ActionDataBtn, SubjectBox, PreviewRecipLbl
+global SubjectRows := []   ; array of {lv row edit controls per subject slot}
+global OverlayGui, OverlayLabel, OverlaySub, OverlayBar
+global PreviewTimer := 0
+
+; ============================================================
+;  BRAND & THEME
+; ============================================================
+global BRAND_NAME  := "first_midey"
+global BRAND_COLOR := "4A90E2" 
+
+GetTheme(dark) {
+    if (dark) {
+        return Map("bg", "0D0D1A", "panel", "161628", "card", "1A1A2E", "title", "61DAFB", "accent", "00CFFF", "muted", "9E9E9E", "good", "8BC34A", "edit_bg", "12122A", "edit_fg", "FFFFFF", "btn_bg", "1E1E3A", "btn_fg", "00CFFF", "divider", "252540", "theme_lbl", "☀ Light")
+    } else {
+        return Map("bg", "F4F6FB", "panel", "E8ECF4", "card", "FFFFFF", "title", "2196F3", "accent", "FF9800", "muted", "757575", "good", "4CAF50", "edit_bg", "FFFFFF", "edit_fg", "111111", "btn_bg", "E0E4EF", "btn_fg", "1565C0", "divider", "D0D4DF", "theme_lbl", "🌙 Dark")
+    }
+}
+
+; ============================================================
+;  Settings Persistence Framework
+; ============================================================
+LoadSettings() {
+    global PasteDelay, SubjectDelay, AutoCompleteDelay, ConfDelay, SaveDelay, SendDelay, LoopDelay, RandVariation, BodyPasteDelay, ComposeX, ComposeY, ConfX, ConfY, SaveX, SaveY, BodyX, BodyY, ConfidentialMode, UseSubjectRotation, DarkTheme, AutoPauseOnFocus, UseHtmlBody, CampaignMode, CurrentTemplateIdx
+    if !FileExist(SettingsFile)
+        return
+    PasteDelay         := Integer(IniRead(SettingsFile, "Delays",  "PasteDelay",        1500))
+    SubjectDelay       := Integer(IniRead(SettingsFile, "Delays",  "SubjectDelay",      1500))
+    AutoCompleteDelay  := Integer(IniRead(SettingsFile, "Delays",  "AutoCompleteDelay",  2000))
+    ConfDelay          := Integer(IniRead(SettingsFile, "Delays",  "ConfDelay",          1500))
+    SaveDelay          := Integer(IniRead(SettingsFile, "Delays",  "SaveDelay",          1500))
+    SendDelay          := Integer(IniRead(SettingsFile, "Delays",  "SendDelay",          2500))
+    LoopDelay          := Integer(IniRead(SettingsFile, "Delays",  "LoopDelay",          1000))
+    RandVariation      := Integer(IniRead(SettingsFile, "Delays",  "RandVariation",       300))
+    BodyPasteDelay     := Integer(IniRead(SettingsFile, "Delays",  "BodyPasteDelay",     2000))
+    ComposeX           := Integer(IniRead(SettingsFile, "Coords",  "ComposeX",            500))
+    ComposeY           := Integer(IniRead(SettingsFile, "Coords",  "ComposeY",            300))
+    ConfX              := Integer(IniRead(SettingsFile, "Coords",  "ConfX",              1100))
+    ConfY              := Integer(IniRead(SettingsFile, "Coords",  "ConfY",               706))
+    SaveX              := Integer(IniRead(SettingsFile, "Coords",  "SaveX",               868))
+    SaveY              := Integer(IniRead(SettingsFile, "Coords",  "SaveY",               570))
+    BodyX              := Integer(IniRead(SettingsFile, "Coords",  "BodyX",               700))
+    BodyY              := Integer(IniRead(SettingsFile, "Coords",  "BodyY",               500))
+    ConfidentialMode   := Integer(IniRead(SettingsFile, "Options", "ConfidentialMode",      1))
+    UseSubjectRotation  := Integer(IniRead(SettingsFile, "Options", "UseSubjectRotation",   1))
+    UseTemplateRotation := Integer(IniRead(SettingsFile, "Options", "UseTemplateRotation",  0))
+    TemplateRotList     := IniRead(SettingsFile, "Options", "TemplateRotList", "1,2")
+    ShowSessionStats    := Integer(IniRead(SettingsFile, "Options", "ShowSessionStats",      1))
+    DarkTheme          := Integer(IniRead(SettingsFile, "Options", "DarkTheme",             0))
+    AutoPauseOnFocus   := Integer(IniRead(SettingsFile, "Options", "AutoPauseOnFocus",      0))
+    UseHtmlBody        := Integer(IniRead(SettingsFile, "Options", "UseHtmlBody",           0))
+    CampaignMode       := Integer(IniRead(SettingsFile, "Options", "CampaignMode",          1))
+    CurrentTemplateIdx := Integer(IniRead(SettingsFile, "Options", "CurrentTemplateIdx",    1))
+}
+
+SaveSettings() {
+    global PasteDelay, SubjectDelay, AutoCompleteDelay, ConfDelay, SaveDelay, SendDelay, LoopDelay, RandVariation, BodyPasteDelay, ComposeX, ComposeY, ConfX, ConfY, SaveX, SaveY, BodyX, BodyY, ConfidentialMode, UseSubjectRotation, DarkTheme, AutoPauseOnFocus, UseHtmlBody, CampaignMode, CurrentTemplateIdx
+    global UseTemplateRotation, ShowSessionStats, TemplateRotChk, ShowStatsChk, TemplateRotInput, TemplateRotList
+    IniWrite PasteDelay,         SettingsFile, "Delays",  "PasteDelay"
+    IniWrite SubjectDelay,       SettingsFile, "Delays",  "SubjectDelay"
+    IniWrite AutoCompleteDelay,  SettingsFile, "Delays",  "AutoCompleteDelay"
+    IniWrite ConfDelay,          SettingsFile, "Delays",  "ConfDelay"
+    IniWrite SaveDelay,          SettingsFile, "Delays",  "SaveDelay"
+    IniWrite SendDelay,          SettingsFile, "Delays",  "SendDelay"
+    IniWrite LoopDelay,          SettingsFile, "Delays",  "LoopDelay"
+    IniWrite RandVariation,      SettingsFile, "Delays",  "RandVariation"
+    IniWrite BodyPasteDelay,     SettingsFile, "Delays",  "BodyPasteDelay"
+    IniWrite ComposeX,           SettingsFile, "Coords",  "ComposeX"
+    IniWrite ComposeY,           SettingsFile, "Coords",  "ComposeY"
+    IniWrite ConfX,              SettingsFile, "Coords",  "ConfX"
+    IniWrite ConfY,              SettingsFile, "Coords",  "ConfY"
+    IniWrite SaveX,              SettingsFile, "Coords",  "SaveX"
+    IniWrite SaveY,              SettingsFile, "Coords",  "SaveY"
+    IniWrite BodyX,              SettingsFile, "Coords",  "BodyX"
+    IniWrite BodyY,              SettingsFile, "Coords",  "BodyY"
+    IniWrite ConfidentialMode,   SettingsFile, "Options", "ConfidentialMode"
+    IniWrite UseSubjectRotation,  SettingsFile, "Options", "UseSubjectRotation"
+    IniWrite UseTemplateRotation, SettingsFile, "Options", "UseTemplateRotation"
+    IniWrite TemplateRotList,     SettingsFile, "Options", "TemplateRotList"
+    IniWrite ShowSessionStats,    SettingsFile, "Options", "ShowSessionStats"
+    IniWrite DarkTheme,          SettingsFile, "Options", "DarkTheme"
+    IniWrite AutoPauseOnFocus,   SettingsFile, "Options", "AutoPauseOnFocus"
+    IniWrite UseHtmlBody,        SettingsFile, "Options", "UseHtmlBody"
+    IniWrite CampaignMode,       SettingsFile, "Options", "CampaignMode"
+    IniWrite CurrentTemplateIdx, SettingsFile, "Options", "CurrentTemplateIdx"
+}
+
+LoadSubjects() {
+    global Subjects
+    Subjects := []
+    if FileExist(SubjectsFile) {
+        loop read SubjectsFile {
+            cleanLine := RegExMatch(A_LoopReadLine, "^\d+\.\s*(.+)", &m) ? m[1] : A_LoopReadLine
+            if (Trim(cleanLine) != "")
+                Subjects.Push(Trim(cleanLine))
+        }
+    }
+}
+
+LoadEmails() {
+    global Emails
+    Emails := []
+    if FileExist(EmailsFile) {
+        loop read EmailsFile
+            if (Trim(A_LoopReadLine) != "")
+                Emails.Push(Trim(A_LoopReadLine))
+    }
+}
+
+LoadHTMLTemplate(idx) {
+    try {
+        rawString := IniRead(SettingsFile, "HTML_Template_" idx, "Code")
+        return StrReplace(rawString, "<ahk_br>", "`n")
+    } catch {
+        return "<h3>Template " idx " Empty</h3>`n<p>Paste your HTML email setup here.</p>"
+    }
+}
+
+SaveHTMLTemplate(idx, code) {
+    escapedCode := StrReplace(code, "`n", "<ahk_br>")
+    escapedCode := StrReplace(escapedCode, "`r", "")
+    IniWrite(escapedCode, SettingsFile, "HTML_Template_" idx, "Code")
+}
+
+; ============================================================
+;  BUILD UNIFIED GUI
+; ============================================================
+LoadSettings()
+LoadSubjects()
+LoadEmails()
+
+t := GetTheme(DarkTheme)
+
+MyGui := Gui("+AlwaysOnTop +Caption +SysMenu +MinimizeBox", "Gmail Auto-Send v8.7 - Master Dashboard")
+MyGui.BackColor := t["bg"]
+
+; Header Card Frame
+MyGui.SetFont("s14 Bold")
+MyGui.Add("Text", "x16 y10 w300 c" t["title"], "Gmail Auto-Send Dashboard")
+MyGui.SetFont("s8 norm c" t["muted"])
+MyGui.Add("Text", "x16 y35 w220", "by " BRAND_NAME " · Kubix Solutions")
+ThemeBtn := MyGui.Add("Button", "x840 y15 w96 h28 +Border", t["theme_lbl"])
+ThemeBtn.OnEvent("Click", ToggleTheme)
+
+; Native Tab Component Overhaul
+MyGui.SetFont("s9 norm c" t["edit_fg"])
+MainTabs := MyGui.Add("Tab3", "x10 y60 w930 h500 +Theme", ["📂 1. Data & Setup", "✉ 2. Message Template", "⚙ 3. Advanced Settings"])
+MainTabs.OnEvent("Change", (*) => CloseActiveInlineEdit())
+
+; ============================================================
+;  TAB 1: DATA & SETUP
+; ============================================================
+MainTabs.UseTab(1)
+MyGui.SetFont("s10 Bold c" t["title"])
+MyGui.Add("Text", "x25 y100 w200", "Data Source Selection")
+
+MyGui.SetFont("s9 norm c" t["edit_fg"])
+CsvModeRadio := MyGui.Add("Radio", "x25 y130 w240 Checked" CampaignMode, "CSV Campaign Mode ★ Recommended")
+LegacyModeRadio := MyGui.Add("Radio", "x25 y155 w240 Checked" (!CampaignMode), "Legacy Email List Mode")
+CsvModeRadio.OnEvent("Click", (*) => SetCampaignMode(1))
+LegacyModeRadio.OnEvent("Click", (*) => SetCampaignMode(0))
+
+MyGui.Add("Text", "x25 y200 w900 h1 0x10") 
+
+; CSV File Handling Cards
+BrowseCsvBtn := MyGui.Add("Button", "x25 y220 w150 h32", "📂 Browse CSV")
+BrowseCsvBtn.OnEvent("Click", OnBrowseCSV)
+PasteCsvBtn := MyGui.Add("Button", "x185 y220 w150 h32", "📋 Paste from Excel")
+PasteCsvBtn.OnEvent("Click", OnPasteCSV)
+CsvFileLabel := MyGui.Add("Text", "x345 y228 w350", "Source: (none)")
+MyGui.SetFont("s10 Bold c" t["good"])
+CsvLoadedLabel := MyGui.Add("Text", "x25 y260 w400", "Loaded Contacts: 0")
+
+
+MyGui.SetFont("s9 norm c" t["edit_fg"])
+MyGui.Add("Text", "x500 y100 w400 c" t["title"], "Active Target Queue (Editable Framework)")
+initEm := ""
+n := 1
+for val in Emails {
+    initEm .= n ". " val "`n"
+    n++
+}
+EmailBox := MyGui.Add("Edit", "x500 y130 w400 h150 Multi VScroll +Border", initEm)
+ActionDataBtn := MyGui.Add("Button", "x500 y290 w400 h32", (CampaignMode ? "✅ Apply Box Queue Modifications" : "💾 Save Legacy List"))
+ActionDataBtn.OnEvent("Click", OnActionDataClick)
+
+; ============================================================
+;  TAB 2: MESSAGE TEMPLATE
+; ============================================================
+MainTabs.UseTab(2)
+
+MyGui.Add("Text", "x25 y100 w400 c" t["title"], "Master Subject Line Sequence Panel")
+
+; --- Subject ListView container (scrollable group) ---
+SubjectListView := MyGui.Add("ListView", "x25 y120 w400 h135 +Border -Multi -Hdr NoSortHdr Background" t["edit_bg"] " c" t["edit_fg"], ["#", "Subject Line", "+", "x"])
+SubjectListView.ModifyCol(1, 26)   ; # column
+SubjectListView.ModifyCol(2, 312)  ; subject text column
+SubjectListView.ModifyCol(3, 30)   ; add button
+SubjectListView.ModifyCol(4, 30)   ; delete button
+SubjectListView.OnEvent("Click", OnSubjectListClick)
+
+; Dummy SubjectBox kept for legacy focus-tracking compatibility (hidden)
+SubjectBox := MyGui.Add("Edit", "x25 y-999 w1 h1 Hidden", "")
+SubjectBox.OnEvent("Focus", (*) => SetFocusTarget("subject"))
+
+; Populate initial subject rows
+SubjectRows := []
+initialSubjects := (Subjects.Length > 0) ? Subjects : ["", "", "", "", "", "", "", "", "", ""]
+loop initialSubjects.Length {
+    txt := (A_Index <= initialSubjects.Length) ? initialSubjects[A_Index] : ""
+    SubjectListView.Add("", A_Index, txt, "+", "x")
+    SubjectRows.Push(txt)
+}
+; Pad to at least 10 rows
+loop Max(0, 10 - SubjectRows.Length) {
+    n := SubjectRows.Length + 1
+    SubjectListView.Add("", n, "", "+", "x")
+    SubjectRows.Push("")
+}
+
+MyGui.Add("Text", "x600 y85 w200 c" t["title"], "CSV Tokens Available")
+CsvVarList := MyGui.Add("ListBox", "x450 y84 w140 h88 +Border Background" t["edit_bg"], [])
+CsvVarList.OnEvent("DoubleClick", OnVarDoubleClick)
+
+MyGui.Add("Button", "x640 y110 w130 h30", "◀ Prev Recipient").OnEvent("Click", (*) => NavigatePreviewRecip(-1))
+MyGui.Add("Button", "x780 y110 w140 h30", "Next Recipient ▶").OnEvent("Click", (*) => NavigatePreviewRecip(1))
+
+MyGui.SetFont("s10 Bold c" t["accent"])
+PreviewRecipLbl := MyGui.Add("Text", "x640 y145 w280 Center", "Recipient Record: 0 / 0")
+MyGui.SetFont("s9 norm c" t["edit_fg"])
+
+MyGui.Add("Text", "x25 y280 w140 c" t["title"], "Campaign HTML Bank:")
+templateOptions := []
+loop 20 {
+    templateOptions.Push("Template " A_Index)
+}
+TemplateSelectDD := MyGui.Add("DropDownList", "x165 y275 w120 Choose" CurrentTemplateIdx, templateOptions)
+TemplateSelectDD.OnEvent("Change", OnTemplateDropdownChange)
+
+CsvValidateBtn := MyGui.Add("Button", "x295 y274 w130 h26", "✅ Validate Tokens")
+CsvValidateBtn.OnEvent("Click", OnValidateVariables)
+
+HtmlCodeBox := MyGui.Add("Edit", "x25 y305 w400 h195 Multi VScroll HScroll +Border", LoadHTMLTemplate(CurrentTemplateIdx))
+HtmlCodeBox.OnEvent("Change", OnHtmlCodeChange)
+HtmlCodeBox.OnEvent("Focus", (*) => SetFocusTarget("body")) ; FOCUS TRACKING
+
+; --- FIND BAR for HTML code box ---
+MyGui.SetFont("s8 norm c" t["edit_fg"])
+MyGui.Add("Text", "x25 y505 w30", "Find:")
+FindInput := MyGui.Add("Edit", "x55 y503 w200 h20 +Border")
+FindInput.OnEvent("Change", (*) => FindMatchLbl.Text := "")  ; clear stale result on new query
+FindInput.OnEvent("LoseFocus", (*) => 0)  ; keep caret in htmlbox after search
+BtnFindNext := MyGui.Add("Button", "x260 y502 w70 h22", "▼ Next")
+BtnFindNext.OnEvent("Click", (*) => FindInHtml(1))
+BtnFindPrev := MyGui.Add("Button", "x334 y502 w60 h22", "▲ Prev")
+BtnFindPrev.OnEvent("Click", (*) => FindInHtml(-1))
+FindMatchLbl := MyGui.Add("Text", "x25 y526 w400 h16", "")
+MyGui.SetFont("s9 norm c" t["edit_fg"])
+
+SaveBodyBtn := MyGui.Add("Button", "x25 y543 w400 h22", "💾 Save Current Selected Template Code")
+SaveBodyBtn.OnEvent("Click", SaveBodyTemplate)
+
+MyGui.SetFont("s8 c" t["muted"])
+ZoomLbl := MyGui.Add("Text", "x880 y280 w40 Right", "100%")
+MyGui.SetFont("s9 norm c" t["edit_fg"])
+
+; Copy for Gmail button — copies the rendered preview as rich HTML to clipboard
+BtnCopyPreview := MyGui.Add("Button", "x450 y275 w160 h26", "📋 Copy for Gmail")
+BtnCopyPreview.OnEvent("Click", CopyPreviewToClipboard)
+
+PreviewBrowser := MyGui.Add("ActiveX", "x450 y170 w470 h360 +Border", "Shell.Explorer")
+PreviewBrowser.Value.Silent := true
+
+; ============================================================
+;  TAB 3: ADVANCED CALIBRATION
+; ============================================================
+MainTabs.UseTab(3)
+
+MyGui.Add("Text", "x25 y100 w200 c" t["title"], "Toggles & Settings")
+ConfModeChk      := MyGui.Add("CheckBox", "x25 y130 w175 Checked" ConfidentialMode,    "Confidential Mode")
+SubjectRotChk    := MyGui.Add("CheckBox", "x25 y155 w220 Checked" UseSubjectRotation,  "Rotate Subjects (Sequence Loop)")
+AutoPauseChk     := MyGui.Add("CheckBox", "x25 y180 w195 Checked" AutoPauseOnFocus,    "Auto-pause on focus loss")
+UseHtmlChk       := MyGui.Add("CheckBox", "x25 y205 w200 Checked" UseHtmlBody,         "Use HTML Body Paste")
+TemplateRotChk   := MyGui.Add("CheckBox", "x25 y230 w195 Checked" UseTemplateRotation, "A/B Rotate Templates:")
+MyGui.Add("Text", "x222 y233 w50", "use IDs:")
+TemplateRotInput := MyGui.Add("Edit", "x272 y230 w60 h20 +Border", TemplateRotList)
+MyGui.SetFont("s8 c" t["muted"])
+MyGui.Add("Text", "x338 y233 w150", "e.g. 1,2 or 1,2,3")
+MyGui.SetFont("s9 norm c" t["edit_fg"])
+ShowStatsChk     := MyGui.Add("CheckBox", "x25 y255 w280 Checked" ShowSessionStats,     "Show session stats on finish / stop")
+
+MyGui.Add("Text", "x250 y100 w200 c" t["title"], "Action Delays (ms)")
+MyGui.Add("Text", "x250 y130 w80", "Paste:"), PasteDelayEdit := MyGui.Add("Edit", "x330 y125 w60", PasteDelay)
+MyGui.Add("Text", "x250 y160 w80", "Subject:"), SubjectDelayEdit := MyGui.Add("Edit", "x330 y155 w60", SubjectDelay)
+MyGui.Add("Text", "x250 y190 w80", "AutoFill:"), AutoCompleteDelayEdit := MyGui.Add("Edit", "x330 y185 w60", AutoCompleteDelay)
+MyGui.Add("Text", "x420 y130 w80", "Conf:"), ConfDelayEdit := MyGui.Add("Edit", "x500 y125 w60", ConfDelay)
+MyGui.Add("Text", "x420 y160 w80", "Save:"), SaveDelayEdit := MyGui.Add("Edit", "x500 y155 w60", SaveDelay)
+MyGui.Add("Text", "x420 y190 w80", "Send:"), SendDelayEdit := MyGui.Add("Edit", "x500 y185 w60", SendDelay)
+MyGui.Add("Text", "x250 y230 w80", "Loop Base:"), LoopDelayEdit := MyGui.Add("Edit", "x330 y225 w60", LoopDelay)
+MyGui.Add("Text", "x420 y230 w80", "± Variation:"), RandVarEdit := MyGui.Add("Edit", "x500 y225 w60", RandVariation)
+MyGui.Add("Text", "x250 y270 w80", "HTML Body:"), BodyPasteDelayEdit := MyGui.Add("Edit", "x330 y265 w60", BodyPasteDelay)
+
+MyGui.Add("Text", "x620 y100 w200 c" t["title"], "Screen Target Calibration")
+ComposeCoordLabel := MyGui.Add("Text", "x620 y130 w130", "Compose: X=" ComposeX " Y=" ComposeY)
+MyGui.Add("Button", "x760 y125 w60", "Pick").OnEvent("Click", (*) => StartPick("Compose"))
+ConfCoordLabel := MyGui.Add("Text", "x620 y160 w130", "Conf: X=" ConfX " Y=" ConfY)
+MyGui.Add("Button", "x760 y155 w60", "Pick").OnEvent("Click", (*) => StartPick("Conf"))
+SaveCoordLabel := MyGui.Add("Text", "x620 y190 w130", "Save: X=" SaveX " Y=" SaveY)
+MyGui.Add("Button", "x760 y185 w60", "Pick").OnEvent("Click", (*) => StartPick("Save"))
+BodyCoordLabel := MyGui.Add("Text", "x620 y220 w130", "Body Paste: X=" BodyX " Y=" BodyY)
+MyGui.Add("Button", "x760 y215 w60", "Pick").OnEvent("Click", (*) => StartPick("Body"))
+
+ApplyTimingsBtn := MyGui.Add("Button", "x25 y490 w200 h32", "💾 Save All Advanced Settings")
+ApplyTimingsBtn.OnEvent("Click", SaveDelaySettings)
+
+; ============================================================
+;  PERSISTENT FOOTER (Outside Tabs)
+; ============================================================
+MainTabs.UseTab()
+
+; Test Email row — sits just above the footer divider
+MyGui.SetFont("s9 norm c" t["edit_fg"])
+MyGui.Add("Text", "x20 y548 w70", "Test email:")
+TestEmailInput := MyGui.Add("Edit", "x90 y545 w260 h22", "")
+TestEmailInput.ToolTip := "Your personal email — sends row 1 fully rendered"
+MyGui.Add("Text", "x355 y548 w55", "Row:")
+TestRowEdit := MyGui.Add("Edit", "x385 y545 w40 h22 +Number", "1")
+BtnTestSend := MyGui.Add("Button", "x430 y543 w110 h26", "📨 Send Test Email")
+BtnTestSend.OnEvent("Click", OnSendTestEmail)
+BtnViewLog := MyGui.Add("Button", "x548 y543 w100 h26", "📋 View Sent Log")
+BtnViewLog.OnEvent("Click", OnViewSentLog)
+MyGui.SetFont("s8 c" t["muted"])
+TestSendStatusLbl := MyGui.Add("Text", "x655 y548 w280", "Ready")
+
+MyGui.Add("Text", "x10 y570 w930 h1 0x10")
+
+MyGui.SetFont("s10 Bold c" t["good"])
+StatusText := MyGui.Add("Text", "x20 y580 w200", "IDLE — F5 to Start")
+MyGui.SetFont("s10 Bold c" t["title"])
+CounterLabel := MyGui.Add("Text", "x225 y580 w120", "0 / 0")
+
+; Progress bar — full width, shows send momentum
+ProgressBar := MyGui.Add("Progress", "x20 y600 w920 h14 c" t["accent"], 0)
+ProgressPctLabel := MyGui.Add("Text", "x870 y580 w70 Right c" t["muted"], "0%")
+
+; Resume from row N control
+MyGui.SetFont("s9 norm c" t["edit_fg"])
+MyGui.Add("Text", "x350 y583 w80", "Start Row:")
+ResumeRowEdit := MyGui.Add("Edit", "x430 y580 w50 h22 +Number", "1")
+BtnStartFromRow := MyGui.Add("Button", "x485 y577 w90 h26", "⤷ From Row")
+BtnStartFromRow.OnEvent("Click", OnStartFromRow)
+
+BtnStart := MyGui.Add("Button", "x590 y570 w100 h38 +Border", "▶ Start (F5)")
+BtnStart.OnEvent("Click", DashboardToggleScript)
+BtnResume := MyGui.Add("Button", "x695 y570 w80 h38", "↩ Resume")
+BtnResume.OnEvent("Click", DashboardResumeScript)
+BtnPause := MyGui.Add("Button", "x780 y570 w80 h38", "⏸ Pause")
+BtnPause.OnEvent("Click", PauseScript)
+BtnStop := MyGui.Add("Button", "x865 y570 w75 h38", "⏹ Stop")
+BtnStop.OnEvent("Click", StopScript)
+
+; ============================================================
+;  OVERLAY GUI (Floating Status)
+; ============================================================
+OverlayGui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20")
+OverlayGui.BackColor := "0A0F1A"
+OverlayGui.MarginX := 0
+OverlayGui.MarginY := 0
+OverlayGui.Add("Progress", "x0 y0 w5 h46 Background00CFFF", 100)
+OverlayBar := OverlayGui.Add("Progress", "x5 y38 w255 h6 Background1A2A3A c00CFFF", 0)
+OverlayGui.SetFont("s9 Bold cFFFFFF", "Segoe UI")
+OverlayLabel := OverlayGui.Add("Text", "x14 y8 w245 h22 BackgroundTrans", "0 of 0 emails sent")
+OverlayGui.SetFont("s7 c6688AA", "Segoe UI")
+OverlaySub := OverlayGui.Add("Text", "x14 y26 w245 h14 BackgroundTrans", "ready")
+overlayW := 264, overlayH := 46
+overlayX := A_ScreenWidth  - overlayW - 18
+overlayY := A_ScreenHeight - overlayH - 50
+
+MyGui.Show("w950 h630")
+RefreshPreview()
+
+; Poll every 500ms — if a campaign is running and GUI is no longer active, minimize it
+SetTimer(CheckGuiFocus, 500)
+
+; ============================================================
+;  CORE ENGINE & EVENT HANDLERS
+; ============================================================
+
+SetFocusTarget(target) {
+    global LastFocusedEdit
+    LastFocusedEdit := target
+}
+
+CleanAndSaveSubjects() {
+    global SubjectListView, SubjectsFile, Subjects, SubjectRows
+    cleanSubjects := []
+    rowCount := SubjectListView.GetCount()
+    loop rowCount {
+        txt := Trim(SubjectListView.GetText(A_Index, 2))
+        if (txt != "")
+            cleanSubjects.Push(txt)
+    }
+    Subjects := cleanSubjects
+    if FileExist(SubjectsFile)
+        FileDelete(SubjectsFile)
+    for cleanStr in cleanSubjects
+        FileAppend(cleanStr "`n", SubjectsFile)
+}
+
+; --- Subject ListView click handler: inline edit, add row, delete row ---
+OnSubjectListClick(lv, rowNum) {
+    global SubjectListView, SubjectRows
+    if (rowNum = 0)
+        return
+    ; Determine clicked column from mouse X position relative to the ListView
+    MouseGetPos(&mx, &my)
+    WinGetPos(&wx, &wy,,, MyGui.Hwnd)
+    SubjectListView.GetPos(&lvX, &lvY)
+    relX := mx - wx - lvX
+    ; Column X boundaries: col1=0-26, col2=26-338, col3=338-368, col4=368-398
+    if (relX >= 368) {          ; Delete column
+        OnSubjectDeleteRow(rowNum)
+    } else if (relX >= 338) {   ; Add column
+        OnSubjectAddRow(rowNum)
+    } else if (relX >= 26) {    ; Subject text column — inline edit
+        OnSubjectInlineEdit(rowNum)
+    }
+    ; Col 1 (number) — do nothing, it is static
+}
+
+global ActiveInlineEdit := ""
+
+OnSubjectInlineEdit(rowNum) {
+    global SubjectListView, MyGui, ActiveInlineEdit, MainTabs
+    ; If a previous inline editor is still open, commit/close it first
+    if (ActiveInlineEdit != "") {
+        try ActiveInlineEdit.Destroy()
+        ActiveInlineEdit := ""
+    }
+    ; Get LV position relative to the GUI window (by-ref output vars, not a returned object)
+    SubjectListView.GetPos(&lvX, &lvY)
+    currentText := SubjectListView.GetText(rowNum, 2)
+    ; Must scope this control to Tab 2, or it renders on top of every tab (incl. Tab 1's radios)
+    MainTabs.UseTab(2)
+    ; Create a floating Edit control over the cell (row height ~18px, +2px border inset)
+    inlineEdit := MyGui.Add("Edit", "x" (lvX + 26) " y" (lvY + (rowNum - 1) * 18 + 3) " w312 h17 +Border -WantReturn", currentText)
+    MainTabs.UseTab()   ; release tab context so later controls aren't accidentally scoped
+    ActiveInlineEdit := inlineEdit
+    inlineEdit.Focus()
+    inlineEdit.OnEvent("LoseFocus", (*) => CommitInlineEdit(inlineEdit, rowNum))
+    SetFocusTarget("subject")
+}
+
+CommitInlineEdit(editCtrl, rowNum) {
+    global SubjectListView, ActiveInlineEdit
+    ; Prevent double-commit/double-destroy if this fires more than once for the same control
+    if (editCtrl = "" || (ActiveInlineEdit != "" && ActiveInlineEdit != editCtrl) || ActiveInlineEdit = "")
+        return
+    newText := Trim(editCtrl.Value)
+    SubjectListView.Modify(rowNum,, rowNum, newText, "+", "x")
+    ActiveInlineEdit := ""
+    try editCtrl.Destroy()
+    CleanAndSaveSubjects()
+}
+
+CloseActiveInlineEdit() {
+    global ActiveInlineEdit
+    if (ActiveInlineEdit != "") {
+        try ActiveInlineEdit.Destroy()
+        ActiveInlineEdit := ""
+    }
+}
+
+OnSubjectAddRow(afterRow) {
+    global SubjectListView, SubjectRows, ActiveInlineEdit
+    CloseActiveInlineEdit()
+    total := SubjectListView.GetCount()
+    ; Insert blank row after afterRow by rebuilding numbering
+    ; Collect all current texts
+    texts := []
+    loop total
+        texts.Push(SubjectListView.GetText(A_Index, 2))
+    ; Insert blank after afterRow
+    texts.InsertAt(afterRow + 1, "")
+    ; Rebuild LV
+    SubjectListView.Delete()
+    SubjectRows := []
+    for i, t in texts {
+        SubjectListView.Add("", i, t, "+", "x")
+        SubjectRows.Push(t)
+    }
+    CleanAndSaveSubjects()
+    ShowToast("✅ Row added after #" afterRow)
+}
+
+OnSubjectDeleteRow(rowNum) {
+    global SubjectListView, SubjectRows, ActiveInlineEdit
+    CloseActiveInlineEdit()
+    total := SubjectListView.GetCount()
+    if (total <= 1) {
+        ShowToast("⚠ Cannot delete the last subject slot.")
+        return
+    }
+    texts := []
+    loop total {
+        if (A_Index != rowNum)
+            texts.Push(SubjectListView.GetText(A_Index, 2))
+    }
+    SubjectListView.Delete()
+    SubjectRows := []
+    for i, t in texts {
+        SubjectListView.Add("", i, t, "+", "x")
+        SubjectRows.Push(t)
+    }
+    CleanAndSaveSubjects()
+    ShowToast("🗑 Row #" rowNum " deleted")
+}
+
+ShowToast(msg) {
+    global ToastGui
+    if (IsSet(ToastGui) && ToastGui != "") {
+        ToastGui.Destroy()
+    }
+    ToastGui := Gui("-Caption +AlwaysOnTop +ToolWindow +E0x20")
+    ToastGui.BackColor := "0F1A10"
+    ToastGui.MarginX := 0
+    ToastGui.MarginY := 0
+    ToastGui.Add("Progress", "x0 y0 w5 h36 Background00CC66", 100)
+    ToastGui.SetFont("s9 Bold c00FF88", "Segoe UI")
+    ToastGui.Add("Text", "x14 y10 w260 h20 BackgroundTrans", msg)
+ 
+    toastW := 288, toastH := 36
+    toastX := A_ScreenWidth - toastW - 22
+    toastY := A_ScreenHeight - toastH - 95
+    ToastGui.Show("x" toastX " y" toastY " w" toastW " h" toastH " NoActivate")
+    SetTimer DismissToast, -3000
+}
+
+DismissToast() {
+    global ToastGui
+    if (IsSet(ToastGui) && ToastGui != "") {
+        ToastGui.Destroy()
+        ToastGui := ""
+    }
+}
+
+ToggleTheme(*) {
+    global DarkTheme
+    DarkTheme := !DarkTheme
+    SaveSettings()
+    ShowToast("Theme toggling requires script reload.")
+}
+
+SaveDelaySettings(*) {
+    global PasteDelay, SubjectDelay, AutoCompleteDelay, ConfDelay, SaveDelay, SendDelay, LoopDelay, RandVariation, BodyPasteDelay
+    PasteDelay        := Integer(PasteDelayEdit.Value)
+    SubjectDelay      := Integer(SubjectDelayEdit.Value)
+    AutoCompleteDelay := Integer(AutoCompleteDelayEdit.Value)
+    ConfDelay         := Integer(ConfDelayEdit.Value)
+    SaveDelay         := Integer(SaveDelayEdit.Value)
+    SendDelay         := Integer(SendDelayEdit.Value)
+    LoopDelay         := Integer(LoopDelayEdit.Value)
+    RandVariation     := Integer(RandVarEdit.Value)
+    BodyPasteDelay    := Integer(BodyPasteDelayEdit.Value)
+    global ConfidentialMode    := ConfModeChk.Value
+    global UseSubjectRotation  := SubjectRotChk.Value
+    global AutoPauseOnFocus    := AutoPauseChk.Value
+    global UseHtmlBody         := UseHtmlChk.Value
+    global UseTemplateRotation := TemplateRotChk.Value
+    global TemplateRotList     := TemplateRotInput.Value
+    global ShowSessionStats    := ShowStatsChk.Value
+    SaveSettings()
+    ShowToast("Settings Saved.")
+}
+
+SetCampaignMode(mode) {
+    global CampaignMode, ActionDataBtn, EmailBox
+    CampaignMode := mode
+    SaveSettings()
+    if (CampaignMode) {
+        ActionDataBtn.Text := "✅ Apply Box Queue Modifications"
+        EmailBox.Value := ""
+    } else {
+        ActionDataBtn.Text := "💾 Save Legacy List"
+        LoadEmails()
+        initEm := ""
+        n := 1
+        for val in Emails {
+            initEm .= n ". " val "`n"
+            n++
+        }
+        EmailBox.Value := initEm
+    }
+}
+
+OnActionDataClick(*) {
+    global CampaignMode
+    if (CampaignMode) {
+        ApplyCsvQueueModifications()
+    } else {
+        SaveLegacyData()
+    }
+}
+
+SaveLegacyData() {
+    global EmailBox, EmailsFile, Emails
+    if FileExist(EmailsFile) {
+        FileDelete(EmailsFile)
+    }
+    FileAppend(EmailBox.Value, EmailsFile)
+    LoadEmails()
+    ShowToast("Legacy list saved!")
+}
+
+OnTemplateDropdownChange(*) {
+    global TemplateSelectDD, CurrentTemplateIdx, HtmlCodeBox
+    SaveHTMLTemplate(CurrentTemplateIdx, HtmlCodeBox.Value)
+    CurrentTemplateIdx := TemplateSelectDD.Value
+    SaveSettings()
+    HtmlCodeBox.Value := LoadHTMLTemplate(CurrentTemplateIdx)
+    RefreshPreview()
+    ShowToast("Loaded Template " CurrentTemplateIdx)
+}
+
+SaveBodyTemplate(*) {
+    global HtmlCodeBox, CurrentTemplateIdx
+    SaveHTMLTemplate(CurrentTemplateIdx, HtmlCodeBox.Value)
+    ShowToast("Template " CurrentTemplateIdx " saved to Settings file!")
+}
+
+OnHtmlCodeChange(*) {
+    global PreviewTimer
+    if (PreviewTimer) {
+        SetTimer PreviewTimer, 0
+    }
+    PreviewTimer := RefreshPreview
+    SetTimer PreviewTimer, -600
+}
+
+ChangeZoom(delta) {
+    global CurrentZoom, ZoomLbl, PreviewBrowser
+    CurrentZoom := Max(25, Min(200, CurrentZoom + delta))
+    ZoomLbl.Text := CurrentZoom "%"
+    try PreviewBrowser.Value.ExecWB(63, 2, CurrentZoom, "")
+}
+
+RandDelay(base) => Max(100, base + Random(-RandVariation, RandVariation))
+
+; --- Coordinate Pickers ---
+StartPick(target) {
+    global PickingTarget := target, MyGui
+    MyGui.Hide()
+    ToolTip "Click Target (ESC to cancel)"
+    SetTimer CheckPick, 50
+}
+
+CheckPick() {
+    global PickingTarget, MyGui, ComposeX, ComposeY, ConfX, ConfY, SaveX, SaveY, BodyX, BodyY
+    global ComposeCoordLabel, ConfCoordLabel, SaveCoordLabel, BodyCoordLabel
+    if GetKeyState("Escape", "P") {
+        SetTimer CheckPick, 0
+        ToolTip()
+        MyGui.Show()
+        return
+    }
+    if GetKeyState("LButton", "P") {
+        SetTimer CheckPick, 0
+        ToolTip()
+        MouseGetPos(&mx, &my)
+        if (PickingTarget = "Compose") {
+            ComposeX := mx, ComposeY := my, ComposeCoordLabel.Text := "Compose: X=" mx " Y=" my
+        } else if (PickingTarget = "Conf") {
+            ConfX := mx, ConfY := my, ConfCoordLabel.Text := "Conf: X=" mx " Y=" my
+        } else if (PickingTarget = "Save") {
+            SaveX := mx, SaveY := my, SaveCoordLabel.Text := "Save: X=" mx " Y=" my
+        } else if (PickingTarget = "Body") {
+            BodyX := mx, BodyY := my, BodyCoordLabel.Text := "Body: X=" mx " Y=" my
+        }
+        SaveSettings()
+        MyGui.Show()
+    }
+}
+
+; --- UPDATED CSV ENGINE ---
+LoadCSV(filePath) {
+    global CsvHeaders, CsvRows, CsvRowCount, CsvFile, ActiveCsvQueue
+    CsvHeaders := [], CsvRows := [], CsvRowCount := 0, ActiveCsvQueue := []
+    rawLines := []
+    loop read filePath {
+        rawLines.Push(A_LoopReadLine)
+    }
+    
+    if (rawLines.Length < 2) {
+        return false
+    }
+    
+    CsvHeaders := ParseHeaders(rawLines[1])
+    
+    ; Find Email Column (Normalization: accepts email or emails)
+    emailColIndex := 0
+    for i, h in CsvHeaders {
+        cleanH := StrLower(Trim(h))
+        if (cleanH = "email" || cleanH = "emails") {
+            emailColIndex := i
+            break
+        }
+    }
+            
+    if (emailColIndex = 0) {
+        MsgBox("CSV is missing an 'Email' or 'Emails' column.")
+        return false
+    }
+    
+    loop rawLines.Length - 1 {
+        rowIdx := A_Index + 1
+        line := Trim(rawLines[rowIdx])
+        if (line = "") {
+            continue
+        }
+            
+        values := ParseCsvLine(line)
+        rowMap := Map()
+        for i, header in CsvHeaders {
+            val := (i <= values.Length) ? Trim(values[i]) : ""
+            
+            ; MULTI-EMAIL METHOD: If this is the email column, normalise separators to ':'
+            if (i = emailColIndex) {
+                ; Replace ';' and ',' separators with ':' so all emails are kept
+                allEmails := RegExReplace(val, "[;,]", ":")
+                allEmails := Trim(allEmails, ": `t")   ; trim stray leading/trailing colons
+                rowMap[header] := allEmails
+            } else {
+                rowMap[header] := val
+            }
+        }
+        CsvRows.Push(rowMap)
+        ActiveCsvQueue.Push(rowMap) 
+    }
+    CsvRowCount := CsvRows.Length
+    return true
+}
+
+ParseHeaders(headerLine) {
+    headers := []
+    ; Strip UTF-8 BOM if present (common in Excel-exported CSVs)
+    headerLine := RegExReplace(headerLine, "^\xEF\xBB\xBF", "")
+    for p in ParseCsvLine(headerLine) {
+        headers.Push(Trim(p))
+    }
+    return headers
+}
+
+ParseCsvLine(line) {
+    fields := [], field := "", inQuote := false, i := 1
+    while (i <= StrLen(line)) {
+        ch := SubStr(line, i, 1)
+        if (ch = '"') {
+            if (inQuote && SubStr(line, i+1, 1) = '"') {
+                field .= '"', i += 2
+                continue
+            }
+             inQuote := !inQuote
+        } else if (ch = "," && !inQuote) {
+            fields.Push(field), field := ""
+        } else {
+            field .= ch
+        }
+        i++
+    }
+    fields.Push(field)
+    return fields
+}
+
+ReplaceVariables(template, rowMap) {
+    result := template
+    for key, val in rowMap {
+        result := StrReplace(result, "{" key "}", val)
+    }
+    return result
+}
+
+ValidateVariables(template) {
+    global CsvHeaders
+    unknown := []
+    pos := 1
+    while (pos := RegExMatch(template, "\{([A-Za-z0-9_]+)\}", &m, pos)) {
+        varName := m[1], found := false
+        for h in CsvHeaders {
+            if (StrLower(h) = StrLower(varName)) {
+                found := true
+                break
+            }
+        }
+        if !found {
+            unknown.Push(varName)
+        }
+        pos += m.Len
+     }
+    return unknown
+}
+
+
+; --- ACTIVITY LOGGER ---
+AppLog(msg) {
+    global LogFile
+    timestamp := FormatTime(, "yyyy-MM-dd HH:mm:ss")
+    FileAppend("[" timestamp "] " msg "`n", LogFile)
+}
+
+
+; --- SESSION STATS POPUP ---
+ShowSessionStatsPopup(sentCount) {
+    global ShowSessionStats, SessionStartTime
+
+    if (!ShowSessionStats || sentCount = 0)
+        return
+
+    elapsedMs  := A_TickCount - SessionStartTime
+    elapsedSec := Round(elapsedMs / 1000)
+    mins       := elapsedSec // 60
+    secs       := Mod(elapsedSec, 60)
+    avgSec     := (sentCount > 0) ? Round(elapsedMs / sentCount / 1000, 1) : 0
+
+    ; Estimate speed per hour
+    perHour := (avgSec > 0) ? Round(3600 / avgSec) : 0
+
+    statsMsg := "Session Summary`n"
+             . "─────────────────────`n"
+             . "  Sent       : " sentCount " emails`n"
+             . "  Duration   : " mins "m " secs "s`n"
+             . "  Avg speed  : " avgSec "s per email`n"
+             . "  Est. rate  : ~" perHour " emails/hour`n"
+             . "─────────────────────"
+
+    MsgBox(statsMsg, "📊 Campaign Stats", 0x40)
+}
+
+; --- SENT LOG ---
+; Appends one row to sent_log.csv after every successful send.
+; Creates the file with a header if it doesn't exist yet.
+WriteSentLog(recipEmail, domain, subject, rowIndex) {
+    global SentLogFile
+    ; Create header if file is new
+    if (!FileExist(SentLogFile)) {
+        FileAppend("timestamp,email,domain,subject,row`n", SentLogFile)
+    }
+    timestamp := FormatTime(, "yyyy-MM-dd HH:mm:ss")
+    ; Escape any commas or quotes in subject
+    safeSubject := StrReplace(subject, '"', '""')
+    if (InStr(safeSubject, ",") || InStr(safeSubject, '"'))
+        safeSubject := '"' safeSubject '"'
+    FileAppend(timestamp "," recipEmail "," domain "," safeSubject "," rowIndex "`n", SentLogFile)
+}
+
+; Opens sent_log.csv in the default application (Excel or Notepad)
+OnViewSentLog(*) {
+    global SentLogFile
+    if (!FileExist(SentLogFile)) {
+        ShowToast("⚠ No sent log yet — send some emails first.")
+        return
+    }
+    Run(SentLogFile)
+}
+
+; --- PASTE CSV FROM EXCEL ---
+; Excel copies cells as tab-separated values with CRLF line endings.
+; This function reads the clipboard, parses it the same way LoadCSV does,
+; and populates CsvRows / ActiveCsvQueue without needing a file at all.
+OnPasteCSV(*) {
+    global CsvFileLabel, CsvLoadedLabel, CsvVarList, CsvHeaders, CsvRows
+    global CsvRowCount, EmailBox, ActiveCsvQueue, PreviewIndex
+
+    raw := A_Clipboard
+    if (Trim(raw) = "") {
+        ShowToast("⚠ Clipboard is empty — copy cells from Excel first.")
+        return
+    }
+
+    ; Split into lines (Excel uses CRLF)
+    rawLines := []
+    loop parse raw, "`n", "`r" {
+        rawLines.Push(A_LoopField)
+    }
+
+    ; Remove trailing blank lines
+    while (rawLines.Length > 0 && Trim(rawLines[rawLines.Length]) = "") {
+        rawLines.Pop()
+    }
+
+    if (rawLines.Length < 2) {
+        ShowToast("⚠ Need at least a header row + one data row.")
+        return
+    }
+
+    ; Parse headers (first row, tab-separated)
+    CsvHeaders := []
+    loop parse rawLines[1], "`t" {
+        CsvHeaders.Push(Trim(A_LoopField))
+    }
+
+    ; Log headers for debugging
+    headerLog := ""
+    for i, h in CsvHeaders {
+        headerLog .= i ":[" h "] "
+    }
+    AppLog("OnPasteCSV: headers = " headerLog)
+
+    ; Find email column index
+    emailColIndex := 0
+    for i, h in CsvHeaders {
+        if (RegExMatch(StrLower(Trim(h)), "^email(s)?$")) {
+            emailColIndex := i
+            break
+        }
+    }
+
+    AppLog("OnPasteCSV: emailColIndex = " emailColIndex)
+
+    if (emailColIndex = 0) {
+        ShowToast("⚠ No 'Email' or 'Emails' column found in pasted data.")
+        return
+    }
+
+    ; Build CsvRows and ActiveCsvQueue
+    CsvRows := []
+    ActiveCsvQueue := []
+
+    loop rawLines.Length - 1 {
+        rowIdx := A_Index + 1
+        line := Trim(rawLines[rowIdx])
+        if (line = "") {
+            continue
+        }
+
+        ; Parse tab-separated values
+        values := []
+        loop parse line, "`t" {
+            values.Push(Trim(A_LoopField))
+        }
+
+        rowMap := Map()
+        for i, header in CsvHeaders {
+            val := (i <= values.Length) ? Trim(values[i]) : ""
+            lowerKey := StrLower(Trim(header))
+            ; MULTI-EMAIL METHOD: normalise separators to ':' and keep all addresses
+            if (i = emailColIndex) {
+                allEmails := RegExReplace(val, "[;,]", ":")
+                allEmails := Trim(allEmails, ": `t")
+                rowMap[lowerKey] := allEmails
+            } else {
+                rowMap[lowerKey] := val
+            }
+        }
+        CsvRows.Push(rowMap)
+        ActiveCsvQueue.Push(rowMap)
+    }
+
+    CsvRowCount := CsvRows.Length
+    AppLog("OnPasteCSV: loaded " CsvRowCount " rows")
+
+    ; Update EmailBox
+    boxText := ""
+    for idx, rowMap in ActiveCsvQueue {
+        for key, val in rowMap {
+            if (RegExMatch(StrLower(key), "^email(s)?$") && val != "") {
+                boxText .= idx ". " val "`n"
+                break
+            }
+        }
+    }
+    EmailBox.Value := boxText
+    CsvLoadedLabel.Text := "Loaded Contacts: " ActiveCsvQueue.Length
+    CsvFileLabel.Text := "Source: Pasted from clipboard (" CsvRowCount " rows)"
+
+    CsvVarList.Delete()
+    for h in CsvHeaders {
+        CsvVarList.Add(["{" h "}"])
+    }
+
+    PreviewIndex := 1
+    RefreshPreview()
+    ShowToast("✅ Pasted " CsvRowCount " rows from Excel!")
+}
+
+; Renders CsvRows into the grid ListView so you can see columns + rows
+
+OnBrowseCSV(*) {
+    global CsvFileLabel, CsvLoadedLabel, CsvVarList, CsvHeaders, CsvRowCount, EmailBox, ActiveCsvQueue, PreviewIndex
+    chosen := FileSelect(1, "", "Select CSV", "CSV Files (*.csv)")
+    if (chosen = "" || !LoadCSV(chosen)) {
+        return
+    }
+    
+    SplitPath(chosen, &fname)
+    CsvFileLabel.Text := "Selected File: " fname
+    
+    ; Update EmailBox with the cleaned first-email-only list
+    boxText := ""
+    for idx, rowMap in ActiveCsvQueue {
+        for key, val in rowMap {
+            if (RegExMatch(StrLower(key), "^email(s)?$") && val != "") {
+                boxText .= idx ". " val "`n"
+                break
+            }
+        }
+    }
+    
+    EmailBox.Value := boxText
+    CsvLoadedLabel.Text := "Loaded Contacts: " ActiveCsvQueue.Length
+    CsvVarList.Delete()
+    for h in CsvHeaders {
+        CsvVarList.Add(["{" h "}"])
+    }
+        
+    PreviewIndex := 1
+    RefreshPreview()
+    ShowToast("CSV Loaded (All emails per row kept — sent together)!")
+}
+
+ApplyCsvQueueModifications() {
+    global EmailBox, ActiveCsvQueue, CsvRows, CsvLoadedLabel, PreviewIndex
+    rawText := EmailBox.Value
+    newQueue := []
+    
+    loop parse rawText, "`n", "`r" {
+        line := Trim(A_LoopField)
+        if (line = "") {
+             continue
+        }
+        
+        if RegExMatch(line, "i)[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", &matchedEmail) {
+            cleanEmail := matchedEmail[0]
+            foundMatch := false
+            for masterRow in CsvRows {
+                for key, val in masterRow {
+if (RegExMatch(StrLower(key), "^email(s)?$") && StrLower(val) = StrLower(cleanEmail)) {
+                        newQueue.Push(masterRow)
+                        foundMatch := true
+                        break
+                    }
+                }
+                if (foundMatch) {
+                    break
+                }
+             }
+        }
+    }
+    
+    ActiveCsvQueue := newQueue
+    rebuiltText := ""
+    for index, row in ActiveCsvQueue {
+        for key, val in row {
+            if (StrLower(key) = "email") {
+                rebuiltText .= index ". " val "`n"
+                break
+            }
+        }
+    }
+    EmailBox.Value := rebuiltText
+    CsvLoadedLabel.Text := "Loaded Contacts: " ActiveCsvQueue.Length
+    PreviewIndex := 1
+    RefreshPreview()
+    ShowToast("Queue synchronized with Token maps!")
+}
+
+NavigatePreviewRecip(direction) {
+    global ActiveCsvQueue, PreviewIndex
+    if (ActiveCsvQueue.Length = 0) {
+        return
+    }
+    PreviewIndex := Max(1, Min(PreviewIndex + direction, ActiveCsvQueue.Length))
+    RefreshPreview()
+}
+
+OnVarDoubleClick(*) {
+    global CsvVarList, HtmlCodeBox, SubjectBox, LastFocusedEdit
+    selected := CsvVarList.Text
+    if (selected = "") {
+        return
+    }
+        
+    if (LastFocusedEdit = "subject") {
+        ; For the ListView subject panel, just show a toast with the token to copy manually
+        ShowToast("Token: " selected " — double-click a subject row to edit, then paste.")
+        A_Clipboard := selected
+    } else {
+        DllCall("SetFocus", "Ptr", HtmlCodeBox.Hwnd)
+        SendMessage(0x00C2, 1, StrPtr(selected), HtmlCodeBox.Hwnd)
+    }
+}
+
+OnValidateVariables(*) {
+    global HtmlCodeBox, SubjectBox, CsvHeaders
+    ; Gather all subject texts from the ListView
+    subjectText := ""
+    loop SubjectListView.GetCount()
+        subjectText .= SubjectListView.GetText(A_Index, 2) . "`n"
+    combined := subjectText . HtmlCodeBox.Value
+    unknown := ValidateVariables(combined)
+    if (unknown.Length = 0) {
+        ShowToast("✅ All variables match CSV headers.")
+    } else {
+        uList := ""
+        for v in unknown {
+            uList .= "{" v "} "
+        }
+        ShowToast("⚠ Unknown vars: " Trim(uList))
+    }
+}
+
+RefreshPreview(*) {
+    global HtmlCodeBox, PreviewBrowser, ActiveCsvQueue, PreviewIndex, PreviewRecipLbl
+    rawHtml := HtmlCodeBox.Value
+    if (ActiveCsvQueue.Length > 0) {
+        PreviewRecipLbl.Text := "Recipient Record: " PreviewIndex " / " ActiveCsvQueue.Length
+        rowMap := ActiveCsvQueue[PreviewIndex]
+        previewHtml := ReplaceVariables(rawHtml, rowMap)
+    } else {
+        PreviewRecipLbl.Text := "Recipient Record: 0 / 0"
+        previewHtml := StrReplace(rawHtml, "{name}", "John")
+    }
+    tmpFile := A_Temp "\ahk_email_preview.html"
+    if FileExist(tmpFile) {
+        FileDelete(tmpFile)
+    }
+    FileAppend("<html><body style='font-family:sans-serif;'>" previewHtml "</body></html>", tmpFile)
+    try PreviewBrowser.Value.Navigate("file:///" . StrReplace(tmpFile, "\", "/"))
+}
+
+; --- Copy Rendered Preview to Clipboard (for pasting into Gmail) ---
+CopyPreviewToClipboard(*) {
+    global HtmlCodeBox, ActiveCsvQueue, PreviewIndex
+    rawHtml := HtmlCodeBox.Value
+    if (ActiveCsvQueue.Length > 0) {
+        rowMap := ActiveCsvQueue[PreviewIndex]
+        renderedHtml := ReplaceVariables(rawHtml, rowMap)
+    } else {
+        renderedHtml := StrReplace(rawHtml, "{name}", "John")
+    }
+    SetClipboardHTML(renderedHtml)
+    ShowToast("✅ Copied! Paste (Ctrl+V) directly into Gmail compose.")
+}
+
+; --- Clipboard HTML Format Pipeline ---
+SetClipboardHTML(htmlFragment) {
+    prefix := "<!DOCTYPE html><html><body>"
+    suffix := "</body></html>"
+    fragment := prefix . htmlFragment . suffix
+
+    hdrTemplate := "Version:0.9`r`nStartHTML:AAAAAAAAAA`r`nEndHTML:BBBBBBBBBB`r`nStartFragment:CCCCCCCCCC`r`nEndFragment:DDDDDDDDDD`r`n"
+    hdrBytes := StrPut(hdrTemplate, "UTF-8") - 1
+    prefixBytes := StrPut(prefix, "UTF-8") - 1
+    fragmentBytes := StrPut(htmlFragment,"UTF-8") - 1
+    fullFragBytes := StrPut(fragment, "UTF-8") - 1
+
+    startHTML := hdrBytes
+    startFragment := hdrBytes + prefixBytes
+    endFragment := startFragment + fragmentBytes
+    endHTML := hdrBytes + fullFragBytes
+
+    header := StrReplace(hdrTemplate, "AAAAAAAAAA", Format("{:010}", startHTML))
+    header := StrReplace(header, "BBBBBBBBBB", Format("{:010}", endHTML))
+    header := StrReplace(header, "CCCCCCCCCC", Format("{:010}", startFragment))
+    header := StrReplace(header, "DDDDDDDDDD", Format("{:010}", endFragment))
+
+    fullData := header . fragment
+
+    cfHtml := DllCall("RegisterClipboardFormat", "Str", "HTML Format", "UInt")
+    DllCall("OpenClipboard", "Ptr", 0)
+    DllCall("EmptyClipboard")
+    utf8Size := StrPut(fullData, "UTF-8")
+    hMem := DllCall("GlobalAlloc", "UInt", 0x42, "Ptr", utf8Size, "Ptr")
+    pMem := DllCall("GlobalLock",  "Ptr", hMem, "Ptr")
+    StrPut(fullData, pMem, utf8Size, "UTF-8")
+    DllCall("GlobalUnlock", "Ptr", hMem)
+    DllCall("SetClipboardData", "UInt", cfHtml, "Ptr", hMem)
+    DllCall("CloseClipboard")
+}
+
+; --- Execution Run Drivers ---
+
+; --- SEND TEST EMAIL ---
+; Renders the full template with real token data from the chosen row
+; and sends it to your personal email exactly as it would go to a prospect.
+OnSendTestEmail(*) {
+    global TestEmailInput, TestRowEdit, TestSendStatusLbl
+    global ActiveCsvQueue, CsvRows, Running
+    global ComposeX, ComposeY, ConfX, ConfY, SaveX, SaveY, BodyX, BodyY
+    global PasteDelay, SubjectDelay, AutoCompleteDelay, ConfDelay, SaveDelay, BodyPasteDelay
+    global ConfidentialMode, UseHtmlBody, HtmlCodeBox, Subjects, SubjectBox
+
+    if (Running) {
+        ShowToast("⚠ Stop the current run before sending a test.")
+        return
+    }
+
+    testAddr := Trim(TestEmailInput.Value)
+    if (testAddr = "") {
+        ShowToast("⚠ Enter your email address in the Test email field.")
+        return
+    }
+
+    ; Validate it looks like an email
+    if (!RegExMatch(testAddr, "i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}")) {
+        ShowToast("⚠ That doesn't look like a valid email address.")
+        return
+    }
+
+    rowN := Integer(TestRowEdit.Value)
+    if (rowN < 1) {
+        rowN := 1
+    }
+
+    ; Use CsvRows if available, else try ActiveCsvQueue
+    sourceQueue := (CsvRows.Length > 0) ? CsvRows : ActiveCsvQueue
+
+    if (sourceQueue.Length = 0) {
+        ShowToast("⚠ No CSV data loaded — browse or paste a CSV first.")
+        return
+    }
+
+    if (rowN > sourceQueue.Length) {
+        ShowToast("⚠ Row " rowN " exceeds loaded data (" sourceQueue.Length " rows)")
+        return
+    }
+
+    rowMap := sourceQueue[rowN]
+
+    ; Resolve subject — use first subject line with tokens replaced
+    chosenSubject := ""
+    allSubjects := []
+    loop SubjectListView.GetCount() {
+        line := Trim(SubjectListView.GetText(A_Index, 2))
+        if (line != "")
+            allSubjects.Push(line)
+    }
+    if (allSubjects.Length > 0) {
+        rawSubject := allSubjects[1]
+        ; Strip leading "N. " numbering (legacy compat)
+        rawSubject := RegExReplace(rawSubject, "^\d+\.\s*", "")
+        chosenSubject := ReplaceVariables(rawSubject, rowMap)
+    }
+    ; Subject sends as-is with real tokens — no prefix added
+
+    ; Show what we're about to send
+    TestSendStatusLbl.Text := "Sending to " testAddr " using row " rowN " data..."
+    ShowToast("📨 Sending test to " testAddr "...")
+
+    ; Minimize GUI so it doesn't block the Gmail clicks
+    MyGui.Minimize()
+    Sleep(400)
+
+    ; Execute the send sequence — identical to RunCsvLoop but to testAddr
+    ClipSaved := ClipboardAll()
+
+    Click(ComposeX, ComposeY)
+    Sleep(PasteDelay)
+
+    A_Clipboard := testAddr
+    ClipWait(1, 1)
+    Send("^v")
+    Sleep(PasteDelay)
+    Sleep(AutoCompleteDelay)
+    Send("{Tab}")
+    Sleep(300)
+
+    A_Clipboard := chosenSubject
+    ClipWait(1, 1)
+    Send("^v")
+    Sleep(SubjectDelay)
+
+    if (ConfidentialMode) {
+        Click(ConfX, ConfY)
+        Sleep(ConfDelay)
+        Click(SaveX, SaveY)
+        Sleep(SaveDelay)
+    }
+
+    if (UseHtmlBody && HtmlCodeBox.Value != "") {
+        Click(BodyX, BodyY)
+        Sleep(BodyPasteDelay)
+        SetClipboardHTML(ReplaceVariables(HtmlCodeBox.Value, rowMap))
+        Sleep(100)
+        Send("^v")
+        Sleep(BodyPasteDelay)
+    }
+
+    A_Clipboard := ClipSaved
+    Send("^{Enter}")
+
+    ; Restore GUI after send
+    Sleep(500)
+    MyGui.Show()
+
+    TestSendStatusLbl.Text := "✅ Test sent to " testAddr " (row " rowN " tokens) — check your inbox"
+    ShowToast("✅ Test email sent!")
+}
+
+; --- START FROM ROW N ---
+OnStartFromRow(*) {
+    global ResumeRowEdit, ActiveCsvQueue, ResumeIndex, Running
+    if (Running) {
+        ShowToast("⚠ Stop the current run first.")
+        return
+    }
+    if (ActiveCsvQueue.Length = 0) {
+        ShowToast("⚠ No queue loaded.")
+        return
+    }
+    n := Integer(ResumeRowEdit.Value)
+    if (n < 1) {
+        n := 1
+    }
+    if (n > ActiveCsvQueue.Length) {
+        ShowToast("⚠ Row " n " exceeds queue length (" ActiveCsvQueue.Length ")")
+        return
+    }
+    ResumeIndex := n
+    ResumeCsvScript()
+    ShowToast("▶ Starting from row " n)
+}
+
+; PRE-FLIGHT SYNC: Re-reads the EmailBox UI text into the correct runtime queue
+; so the queue is always in sync with what is displayed when Start is pressed.
+PreFlightSync() {
+    global CampaignMode, EmailBox, ActiveCsvQueue, CsvRows, Emails, EmailsFile
+
+    if (CampaignMode) {
+        ; CSV Mode: rebuild ActiveCsvQueue from EmailBox content,
+        ; matching each email back to its full token-map row in CsvRows.
+        ; The Explosive cleanup (first email per cell) was already applied
+        ; when the CSV was loaded, so CsvRows already contains clean emails.
+        rawText := EmailBox.Value
+        newQueue := []
+        loop parse rawText, "`n", "`r" {
+            line := Trim(A_LoopField)
+            if (line = "") {
+                continue
+            }
+            ; Extract email address from the line (strips leading "N. " numbering)
+            if RegExMatch(line, "i)[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", &matchedEmail) {
+                cleanEmail := matchedEmail[0]
+                for masterRow in CsvRows {
+                    for key, val in masterRow {
+                        if (RegExMatch(StrLower(key), "^email(s)?$") && StrLower(val) = StrLower(cleanEmail)) {
+                            newQueue.Push(masterRow)
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        ActiveCsvQueue := newQueue
+    } else {
+        ; Legacy Mode: rebuild Emails array directly from EmailBox lines.
+        rawText := EmailBox.Value
+        newEmails := []
+        loop parse rawText, "`n", "`r" {
+            line := Trim(A_LoopField)
+            ; Strip leading "N. " numbering if present
+            cleanLine := RegExMatch(line, "^\d+\.\s*(.+)", &m) ? m[1] : line
+            if (Trim(cleanLine) != "") {
+                newEmails.Push(Trim(cleanLine))
+            }
+        }
+        Emails := newEmails
+    }
+}
+
+DashboardToggleScript(*) {
+    global CampaignMode
+    
+    CleanAndSaveSubjects() ; FORCE CLEANUP BEFORE RUNNING
+    PreFlightSync()        ; PRE-FLIGHT: sync EmailBox → runtime queue
+    
+    if (CampaignMode) {
+        ToggleCsvScript()
+    } else {
+        ToggleLegacyScript()
+    }
+}
+
+DashboardResumeScript(*) {
+    global CampaignMode
+    
+    CleanAndSaveSubjects() ; FORCE CLEANUP BEFORE RUNNING
+    
+    if (CampaignMode) {
+        ResumeCsvScript()
+    } else {
+        ResumeLegacyScript()
+    }
+}
+
+StopScript(*) {
+    global Running, Paused, StatusText, OverlayGui, EmailIndex, ResumeIndex
+    ResumeIndex := EmailIndex
+    Running := false
+    Paused  := false
+    StatusText.Text := "STOPPED — F5 restarts"
+    StatusText.SetFont("cFFAA00")
+    OverlayGui.Hide()
+    MyGui.Show()
+    ShowSessionStatsPopup(EmailCount)
+}
+
+PauseScript(*) {
+    global Paused, StatusText
+    Paused := !Paused
+    StatusText.Text := Paused ? "PAUSED" : "RUNNING..."
+}
+
+
+; --- FIND IN HTML BOX ---
+; Searches through HtmlCodeBox text, highlights the match by selecting it.
+; dir: 1 = forward, -1 = backward
+FindInHtml(dir) {
+    global HtmlCodeBox, FindInput, FindMatchLbl, FindLastPos, FindLastDir
+
+    needle := FindInput.Value
+    if (needle = "") {
+        FindMatchLbl.Text := ""
+        return
+    }
+
+    ; Normalize to LF-only so InStr positions match EM_SETSEL exactly
+    haystack := StrReplace(HtmlCodeBox.Value, "`r`n", "`n")
+    needleLen := StrLen(needle)
+
+    ; Get current selection start via EM_GETSEL
+    selResult := SendMessage(0x00B0, 0, 0, HtmlCodeBox)
+    caretPos  := selResult & 0xFFFF
+
+    pos := 0
+
+    if (dir = 1) {
+        ; Forward: search from one past current caret
+        startFrom := caretPos + 1
+        pos := InStr(haystack, needle, false, startFrom + 1)
+        if (!pos) {
+            pos := InStr(haystack, needle, false, 1)
+            if (pos)
+                FindMatchLbl.Text := "Wrapped to top"
+        } else {
+            FindMatchLbl.Text := "Match found"
+        }
+    } else {
+        ; Backward: find last occurrence before caret
+        searchEnd := (caretPos > 1) ? caretPos : StrLen(haystack)
+        checkPos := 1
+        loop {
+            found := InStr(haystack, needle, false, checkPos)
+            if (!found || found >= searchEnd)
+                break
+            pos := found
+            checkPos := found + 1
+        }
+        if (!pos) {
+            ; Wrap — find last occurrence in whole string
+            checkPos := 1
+            loop {
+                found := InStr(haystack, needle, false, checkPos)
+                if (!found)
+                    break
+                pos := found
+                checkPos := found + 1
+            }
+            if (pos)
+                FindMatchLbl.Text := "Wrapped to bottom"
+        } else {
+            FindMatchLbl.Text := "Match found"
+        }
+    }
+
+    if (pos) {
+        HtmlCodeBox.Focus()
+        ; EM_SETSEL uses 0-based positions
+        SendMessage(0x00B1, pos - 1, pos - 1 + needleLen, HtmlCodeBox)
+        SendMessage(0x00B7, 0, 0, HtmlCodeBox)  ; EM_SCROLLCARET
+        FindLastPos := pos
+        FindLastDir := dir
+    } else {
+        FindMatchLbl.Text := "No match: " needle
+    }
+}
+
+CheckGuiFocus() {
+    if (!WinActive("ahk_id " MyGui.Hwnd)) {
+        MyGui.Minimize()
+    }
+}
+
+; --- RUN CSV CAMPAIGN LOOP SYSTEM ---
+ToggleCsvScript() {
+    global Running, Paused, EmailIndex, EmailCount, ActiveCsvQueue
+    global StatusText, CounterLabel, ProgressBar, OverlayGui, OverlayLabel, OverlaySub, OverlayBar, overlayX, overlayY
+    
+    if (Running) {
+        StopScript()
+        return
+    }
+    if (ActiveCsvQueue.Length = 0) {
+        ShowToast("⚠ Queue stack empty")
+        return
+    }
+    
+    Running := true
+    Paused := false
+    EmailIndex := 1
+    EmailCount := 0
+    SessionStartTime := A_TickCount
+
+    ; Minimize GUI so it doesn't sit over Gmail during the send loop
+    MyGui.Minimize()
+    
+    StatusText.Text := "RUNNING CSV..."
+    StatusText.SetFont("c00FF88")
+    CounterLabel.Text := "0 / " ActiveCsvQueue.Length
+    ProgressBar.Value := 0
+    ProgressPctLabel.Text := "0%"
+    
+    OverlayLabel.Text := "0 of " ActiveCsvQueue.Length " sent"
+    OverlaySub.Text := "running..."
+    OverlayBar.Value := 0
+    OverlayGui.Show("x" overlayX " y" overlayY " NoActivate")
+    
+    SetTimer RunCsvLoop, -100
+}
+
+ResumeCsvScript() {
+    global Running, Paused, EmailIndex, EmailCount, ActiveCsvQueue, ResumeIndex
+    global StatusText, CounterLabel, ProgressBar, OverlayGui, OverlayLabel, OverlaySub, OverlayBar, overlayX, overlayY
+    
+    if (Running) {
+        return
+    }
+    if (ActiveCsvQueue.Length = 0) {
+        return
+    }
+        
+    Running := true
+    Paused := false
+    EmailIndex := ResumeIndex
+    EmailCount := ResumeIndex - 1
+
+    MyGui.Minimize()
+    
+    pct := Round((EmailCount / ActiveCsvQueue.Length) * 100)
+    StatusText.Text := "RESUMING..."
+    StatusText.SetFont("c00FF88")
+    CounterLabel.Text := EmailCount " / " ActiveCsvQueue.Length
+    ProgressBar.Value := pct
+    ProgressPctLabel.Text := pct "%"
+    
+    OverlayLabel.Text := EmailCount " of " ActiveCsvQueue.Length " sent"
+    OverlaySub.Text := "resuming..."
+    OverlayBar.Value := pct
+    OverlayGui.Show("x" overlayX " y" overlayY " NoActivate")
+    
+    SetTimer RunCsvLoop, -100
+}
+
+RunCsvLoop() {
+    global Running, Paused, EmailIndex, EmailCount, ActiveCsvQueue, ResumeIndex, Subjects, SubjectIndex, UseSubjectRotation
+    global ComposeX, ComposeY, ConfX, ConfY, SaveX, SaveY, BodyX, BodyY, SubjectBox
+    global PasteDelay, SubjectDelay, AutoCompleteDelay, ConfDelay, SaveDelay, SendDelay, LoopDelay, BodyPasteDelay
+    global ConfidentialMode, UseHtmlBody, HtmlCodeBox, UseTemplateRotation
+    global StatusText, CounterLabel, ProgressBar, OverlayGui, OverlayLabel, OverlaySub, OverlayBar
+
+    while (Running) {
+        while (Paused && Running) {
+            Sleep(200)
+        }
+        if (!Running) {
+            break
+        }
+
+        if (EmailIndex > ActiveCsvQueue.Length) {
+            Running := false
+            StatusText.Text := "✓ FINISHED"
+            OverlayLabel.Text := "All Done!"
+            OverlayBar.Value := 100
+            SetTimer () => OverlayGui.Hide(), -4000
+            MyGui.Show()
+            ShowToast("✓ All sent!")
+            ShowSessionStatsPopup(EmailCount)
+            break
+        }
+
+rowMap := ActiveCsvQueue[EmailIndex]
+recipEmail := ""
+for key, val in rowMap {
+    if (StrLower(key) = "email" || StrLower(key) = "emails") {
+        recipEmail := val
+        break
+    }
+}
+        
+        if (recipEmail = "") {
+            EmailIndex++
+            continue
+         }
+
+        chosenSubject := ""
+        if (UseSubjectRotation && Subjects.Length > 0) {
+            if (SubjectIndex > Subjects.Length) {
+                SubjectIndex := 1
+            }
+            chosenSubject := ReplaceVariables(Subjects[SubjectIndex], rowMap)
+            SubjectIndex++
+        } else {
+            firstSubjectLine := (Subjects.Length > 0) ? Subjects[1] : ""
+            chosenSubject := ReplaceVariables(firstSubjectLine, rowMap)
+        }
+
+        Click(ComposeX, ComposeY)
+        Sleep(RandDelay(PasteDelay))
+        ClipSaved := ClipboardAll()
+
+        ; Split on ':' — supports multi-recipient rows (e.g. a@x.com:b@x.com:c@x.com)
+        ; Join with commas and paste once so Gmail recognises all addresses natively
+        recipList := StrSplit(recipEmail, ":")
+        cleanRecipList := []
+        for idx, singleEmail in recipList {
+            singleEmail := Trim(singleEmail)
+            if (singleEmail = "")
+                continue
+            cleanRecipList.Push(singleEmail)
+        }
+        joinedRecip := ""
+        for idx, addr in cleanRecipList {
+            joinedRecip .= (idx > 1 ? ", " : "") . addr
+        }
+        A_Clipboard := joinedRecip
+        ClipWait(1, 1)
+        Send("^v")
+        Sleep(RandDelay(PasteDelay))
+        Sleep(RandDelay(AutoCompleteDelay))
+        Send("{Tab}")          ; confirms all addresses as chips in Gmail
+        Sleep(300)
+
+        A_Clipboard := chosenSubject
+        ClipWait(1, 1)
+        Send("^v")
+        Sleep(RandDelay(SubjectDelay))
+
+        if (ConfidentialMode) {
+            Click(ConfX, ConfY)
+            Sleep(RandDelay(ConfDelay))
+            Click(SaveX, SaveY)
+            Sleep(RandDelay(SaveDelay))
+        }
+
+        ; Template rotation: cycle only through specified template IDs
+        chosenHtml := HtmlCodeBox.Value
+        if (UseTemplateRotation && TemplateRotList != "") {
+            ; Parse the comma-separated list e.g. "1,2" → [1, 2]
+            rotIds := []
+            loop parse TemplateRotList, "," {
+                n := Integer(Trim(A_LoopField))
+                if (n >= 1 && n <= 20)
+                    rotIds.Push(n)
+            }
+            if (rotIds.Length > 0) {
+                tIdx := rotIds[Mod(EmailIndex - 1, rotIds.Length) + 1]
+                chosenHtml := LoadHTMLTemplate(tIdx)
+            }
+        }
+
+        if (UseHtmlBody && chosenHtml != "") {
+            Click(BodyX, BodyY)
+            Sleep(RandDelay(BodyPasteDelay))
+            SetClipboardHTML(ReplaceVariables(chosenHtml, rowMap))
+            Sleep(100)
+            Send("^v")
+            Sleep(RandDelay(BodyPasteDelay))
+        }
+
+        A_Clipboard := ClipSaved
+        Send("^{Enter}")
+        Sleep(RandDelay(SendDelay))
+
+        EmailCount++
+        ResumeIndex := EmailIndex + 1
+
+        ; Extract domain for the log (key may be "domain" in StoreLeads CSVs)
+        logDomain := ""
+        for k, v in rowMap {
+            if (StrLower(k) = "domain") {
+                logDomain := v
+                break
+            }
+        }
+        WriteSentLog(recipEmail, logDomain, chosenSubject, EmailIndex)
+
+        EmailIndex++
+        
+        pct := Round((EmailCount / ActiveCsvQueue.Length) * 100)
+        CounterLabel.Text := EmailCount " / " ActiveCsvQueue.Length
+        ProgressBar.Value := pct
+        ProgressPctLabel.Text := pct "%"
+        
+        OverlayLabel.Text := EmailCount " of " ActiveCsvQueue.Length " sent"
+        OverlaySub.Text := "last: " recipEmail
+        OverlayBar.Value := pct
+
+        Sleep(RandDelay(LoopDelay))
+    }
+}
+
+; --- RUN LEGACY CAMPAIGN CYCLE ---
+ToggleLegacyScript() {
+    global Running, Paused, EmailIndex, EmailCount, Emails
+    global StatusText, CounterLabel, ProgressBar, OverlayGui, OverlayLabel, OverlaySub, OverlayBar, overlayX, overlayY
+    
+    if (Running) {
+        StopScript()
+        return
+    }
+    if (Emails.Length = 0) {
+        ShowToast("⚠ No legacy emails loaded")
+        return
+    }
+    
+    Running := true
+    Paused := false
+    EmailIndex := 1
+    EmailCount := 0
+    SessionStartTime := A_TickCount
+
+    MyGui.Minimize()
+    StatusText.Text := "RUNNING LEGACY..."
+    StatusText.SetFont("c00FF88")
+    CounterLabel.Text := "0 / " Emails.Length
+    ProgressBar.Value := 0
+    
+    OverlayLabel.Text := "0 of " Emails.Length " sent"
+    OverlaySub.Text := "running..."
+    OverlayBar.Value := 0
+    OverlayGui.Show("x" overlayX " y" overlayY " NoActivate")
+    
+    SetTimer RunLegacyLoop, -100
+}
+
+ResumeLegacyScript() {
+    global Running, Paused, EmailIndex, EmailCount, Emails, ResumeIndex
+    global StatusText, CounterLabel, ProgressBar, OverlayGui, OverlayLabel, OverlaySub, OverlayBar, overlayX, overlayY
+    
+    if (Running) {
+        return
+    }
+    if (Emails.Length = 0) {
+        return
+    }
+        
+    Running := true
+    Paused := false
+    EmailIndex := ResumeIndex
+    EmailCount := ResumeIndex - 1
+    
+    pct := Round((EmailCount / Emails.Length) * 100)
+    StatusText.Text := "RESUMING..."
+    StatusText.SetFont("c00FF88")
+    CounterLabel.Text := EmailCount " / " Emails.Length
+    ProgressBar.Value := pct
+    ProgressPctLabel.Text := pct "%"
+    
+    OverlayLabel.Text := EmailCount " of " Emails.Length " sent"
+    OverlaySub.Text := "resuming..."
+    OverlayBar.Value := pct
+    OverlayGui.Show("x" overlayX " y" overlayY " NoActivate")
+    
+    SetTimer RunLegacyLoop, -100
+}
+
+ExtractEmail(entry) {
+    if RegExMatch(entry, "[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", &m) {
+        return m[0]
+    }
+    return Trim(entry)
+}
+
+ExtractFirstName(entry) {
+    if RegExMatch(entry, "^([A-Za-z][a-zA-Z'\-]*)", &m) {
+        if !RegExMatch(entry, "^[^,@]+@") {
+            return m[1]
+        }
+    }
+    return "there"
+}
+
+ExtractStore(entry) {
+    email := ExtractEmail(entry)
+    if RegExMatch(email, "@([a-zA-Z0-9\-]+)\.", &m) {
+        return StrUpper(SubStr(m[1], 1, 1)) . SubStr(m[1], 2)
+    }
+    return "your store"
+}
+
+ApplyTokens(html, entry) {
+    html := StrReplace(html, "{name}",  ExtractFirstName(entry))
+    html := StrReplace(html, "{email}", ExtractEmail(entry))
+    html := StrReplace(html, "{store}", ExtractStore(entry))
+    return html
+}
+
+RunLegacyLoop() {
+    global Running, Paused, EmailIndex, EmailCount, Emails, ResumeIndex, Subjects, SubjectIndex, UseSubjectRotation
+    global ComposeX, ComposeY, ConfX, ConfY, SaveX, SaveY, BodyX, BodyY, HtmlCodeBox
+    global PasteDelay, SubjectDelay, AutoCompleteDelay, ConfDelay, SaveDelay, SendDelay, LoopDelay, BodyPasteDelay
+    global ConfidentialMode, UseHtmlBody
+    global StatusText, CounterLabel, ProgressBar, OverlayGui, OverlayLabel, OverlaySub, OverlayBar
+
+    while (Running) {
+        while (Paused && Running) {
+            Sleep(200)
+        }
+        if (!Running) {
+            break
+        }
+
+        if (EmailIndex > Emails.Length) {
+            Running := false
+            StatusText.Text := "✓ FINISHED"
+            OverlayLabel.Text := "All Done!"
+            OverlayBar.Value := 100
+            SetTimer () => OverlayGui.Hide(), -4000
+            MyGui.Show()
+            ShowToast("✓ All legacy emails sent!")
+            ShowSessionStatsPopup(EmailCount)
+            break
+        }
+
+        currentEntry := Emails[EmailIndex]
+        recipientEmail := ExtractEmail(currentEntry)
+
+        Click(ComposeX, ComposeY)
+        Sleep(RandDelay(PasteDelay))
+        ClipSaved := ClipboardAll()
+
+        ; Join colon-separated recipients with commas so Gmail recognises multiple addresses natively
+        legacyRecipList := StrSplit(currentEntry, ":")
+        cleanRecipients := []
+        for idx, singleRecip in legacyRecipList {
+            singleRecip := Trim(singleRecip)
+            if (singleRecip = "")
+                continue
+            cleanRecipients.Push(ExtractEmail(singleRecip))
+        }
+        recipientString := ""
+        for i, addr in cleanRecipients {
+            recipientString .= (i > 1 ? ", " : "") . addr
+        }
+        A_Clipboard := recipientString
+        ClipWait(1, 1)
+        Send("^v")
+        Sleep(RandDelay(PasteDelay))
+        Send("{Tab}")
+        Sleep(300)
+
+        chosenSubject := ""
+        if (UseSubjectRotation && Subjects.Length > 0) {
+            if (SubjectIndex > Subjects.Length) {
+                SubjectIndex := 1
+            }
+            chosenSubject := ApplyTokens(Subjects[SubjectIndex], currentEntry)
+            SubjectIndex++
+        } else {
+            firstSubjectLine := (Subjects.Length > 0) ? Subjects[1] : ""
+            chosenSubject := ApplyTokens(firstSubjectLine, currentEntry)
+        }
+
+        A_Clipboard := chosenSubject
+        ClipWait(1, 1)
+        Send("^v")
+        Sleep(RandDelay(SubjectDelay))
+
+        if (ConfidentialMode) {
+            Click(ConfX, ConfY)
+            Sleep(RandDelay(ConfDelay))
+            Click(SaveX, SaveY)
+            Sleep(RandDelay(SaveDelay))
+        }
+
+        if (UseHtmlBody && HtmlCodeBox.Value != "") {
+            Click(BodyX, BodyY)
+            Sleep(RandDelay(BodyPasteDelay))
+            SetClipboardHTML(ApplyTokens(HtmlCodeBox.Value, currentEntry))
+            Sleep(100)
+            Send("^v")
+            Sleep(RandDelay(BodyPasteDelay))
+        }
+
+        A_Clipboard := ClipSaved
+        Send("^{Enter}")
+        Sleep(RandDelay(SendDelay))
+
+        EmailCount++
+        WriteSentLog(recipientEmail, "", chosenSubject, EmailIndex)
+        ResumeIndex := EmailIndex + 1
+        EmailIndex++
+
+        pct := Round((EmailCount / Emails.Length) * 100)
+        CounterLabel.Text := EmailCount " / " Emails.Length
+        ProgressBar.Value := pct
+        ProgressPctLabel.Text := pct "%"
+        
+        OverlayLabel.Text := EmailCount " of " Emails.Length " sent"
+        OverlaySub.Text := "last: " recipientEmail
+        OverlayBar.Value := pct
+
+        Sleep(RandDelay(LoopDelay))
+    }
+}
+
+; --- Global Macro Hotkeys ---
+F5:: DashboardToggleScript()
+F6:: StopScript()
+F7:: PauseScript()
+
+; Ctrl+F focuses the Find bar in the HTML code box
+^f:: {
+    global FindInput
+    FindInput.Focus()
+    FindInput.Value := ""
+}
+
+OnMessage(0x201, WM_LBUTTONDOWN)
+WM_LBUTTONDOWN(wParam, lParam, msg, hwnd) {
+    PostMessage(0xA1, 2,,, "A")
+}
+
+; --- Enter-key auto-numbering removed (subject panel is now a ListView) ---

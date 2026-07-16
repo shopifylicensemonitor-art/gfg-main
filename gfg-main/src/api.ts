@@ -5,7 +5,16 @@
  * headers from sessionStorage, and processes JSON responses.
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3000' : '');
+const getApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (import.meta.env.DEV) {
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+    return `http://${hostname}:3000`;
+  }
+  return '';
+};
+
+const BASE_URL = getApiBaseUrl();
 
 // ---------------------------------------------------------------------------
 // TypeScript Interfaces
@@ -29,6 +38,7 @@ export interface Contact {
   id: number;
   list_name: string;
   email: string;
+  fields?: Record<string, string>;
   created_at: string;
 }
 
@@ -248,7 +258,13 @@ export const api = {
 
   // Contacts
   getContactLists: () => apiFetch<ContactListInfo[]>('/api/contacts/lists'),
-  getContacts: (listName: string) => apiFetch<Contact[]>(`/api/contacts/${encodeURIComponent(listName)}`),
+  getContacts: (listName: string, limit?: number, offset?: number) => {
+    const params = [];
+    if (limit !== undefined) params.push(`limit=${limit}`);
+    if (offset !== undefined) params.push(`offset=${offset}`);
+    const query = params.length > 0 ? `?${params.join('&')}` : '';
+    return apiFetch<Contact[]>(`/api/contacts/${encodeURIComponent(listName)}${query}`);
+  },
   uploadContacts: (listName: string, file: File) => {
     const formData = new FormData();
     formData.append('list_name', listName);
@@ -256,6 +272,12 @@ export const api = {
     return apiFetch<{ success: boolean; added: number; skipped: number; total: number }>('/api/contacts/upload', {
       method: 'POST',
       body: formData
+    });
+  },
+  importBulkContacts: (listName: string, contacts: { email: string; fields?: Record<string, string> }[]) => {
+    return apiFetch<{ success: boolean; added: number; skipped: number; total: number }>('/api/contacts/import-bulk', {
+      method: 'POST',
+      body: JSON.stringify({ list_name: listName, contacts })
     });
   },
   addContact: (listName: string, email: string) => apiFetch<{ success: boolean; id: number }>('/api/contacts', {
@@ -292,6 +314,33 @@ export const api = {
     body: JSON.stringify(data)
   }),
   deleteTemplate: (id: number) => apiFetch<{ success: boolean }>(`/api/templates/${id}`, { method: 'DELETE' }),
+
+  // Device/IP state persistence
+  getDeviceState: (deviceId: string) => apiFetch<{
+    emailText?: string;
+    subject?: string;
+    body?: string;
+    userName?: string;
+    cc?: string;
+    bcc?: string;
+    myInboxTo?: string;
+    ccRoutingMode?: 'reroute' | 'normal';
+    enableRandomization?: boolean;
+    bccBatchSize?: number;
+    bccBatchOpenCount?: number;
+    autoScroll?: boolean;
+    goalInput?: string;
+    alarmIntervalStep?: string;
+    csvMappings?: Record<string, string>;
+    uploadedFileName?: string;
+    parsedCSV?: any;
+    activeVariables?: string[];
+  } | null>(`/api/contacts/state/retrieve?device_id=${encodeURIComponent(deviceId)}`),
+  
+  saveDeviceState: (deviceId: string, stateData: any) => apiFetch<{ success: boolean }>('/api/contacts/state/save', {
+    method: 'POST',
+    body: JSON.stringify({ device_id: deviceId, state_data: stateData })
+  }),
 
   // Auth
   getLoginUrl: () => apiFetch<{ url: string }>('/api/auth/google-url'),

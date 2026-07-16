@@ -1,197 +1,183 @@
-# AutoHotkey Backend Integration Guide
+# AutoHotkey Script: Backend Integration Code (Copy-Paste Ready)
 
-This guide provides a comprehensive approach to connecting your AutoHotkey desktop automation scripts to a backend Node.js API server, enabling you to trigger bulk email campaigns via API instead of relying on UI automation.
+## Instructions
+
+1. Open your existing `Autosend_Prime.ahk` script
+2. Find the function `DashboardToggleScript()` (search for it in the file)
+3. Add the new functions below **BEFORE** `DashboardToggleScript()`
+4. Replace the contents of `DashboardToggleScript()` with the updated version
+5. Save and test
 
 ---
 
-## Part 1: Global Variables
-
-Define these at the top of your AutoHotkey script:
+## Part 1: Global Variables (Add at top of script, after other globals)
 
 ```autohotkey
-; Backend API Configuration
-BackendServerUrl := "http://localhost:3000"  ; Change to your server URL
-UseFallbackAutomation := true  ; If true, falls back to UI automation if API fails
-BackendTimeout := 30000  ; Timeout in milliseconds (30 seconds)
+; ===== Backend Integration Globals =====
+global BackendServerUrl := "http://localhost:3000"  ; Change to your backend URL
+global UseFallbackAutomation := 0                   ; Flag: fall back to UI if API fails
+global BackendTimeout := 5000                       ; Milliseconds to wait for backend response
 ```
 
 ---
 
-## Part 2: Core Functions
+## Part 2: New Functions (Add before DashboardToggleScript)
 
-### 2.1 SendCampaignToBackend()
-
-This is the main function that collects data from your ListView and sends it to the backend:
-
+### Function A: SendCampaignToBackend()
 ```autohotkey
-SendCampaignToBackend()
-{
-    global BackendServerUrl, BackendTimeout
+SendCampaignToBackend() {
+    global BackendServerUrl, Subjects, Emails, ActiveCsvQueue, HtmlCodeBox
+    global SubjectListView, ShowToast, logger
     
     ; Collect subjects from ListView
     subjects := []
-    Loop, Parse, A_LoopReadLine
-    {
-        ; Assuming subjects are in column 1
-        LV_GetText(subject, A_Index, 1)
-        if (subject != "")
-            subjects.Push(subject)
-    }
-    
-    ; Collect recipients from ListView
-    recipients := []
-    LV_GetText(recipientData, , 2)  ; Column 2
-    if (recipientData != "")
-    {
-        Loop, Parse, recipientData, ","
-        {
-            recipient := Trim(A_LoopField)
-            if (recipient != "")
-                recipients.Push(recipient)
+    if (IsSet(SubjectListView)) {
+        loop SubjectListView.GetCount() {
+            txt := Trim(SubjectListView.GetText(A_Index, 2))
+            if (txt != "")
+                subjects.Push(txt)
         }
     }
+    
+    ; Collect recipients
+    recipients := []
+    if (IsSet(ActiveCsvQueue) && ActiveCsvQueue.Length > 0) {
+        ; CSV mode: map rows to recipient objects
+        for row in ActiveCsvQueue {
+            recipObj := Map()
+            for key, val in row {
+                recipObj[key] := val
+            }
+            recipients.Push(recipObj)
+        }
+    } else if (IsSet(Emails) && Emails.Length > 0) {
+        ; Legacy mode: simple email list
+        for email in Emails {
+            recipients.Push(Map("email", email))
+        }
+    }
+    
+    if (recipients.Length = 0) {
+        ShowToast("⚠ No recipients loaded")
+        return false
+    }
+    
+    if (subjects.Length = 0)
+        subjects.Push("Your Subject")  ; Default subject
     
     ; Build JSON payload
-    payload := ObjToJson({
-        subjects: subjects,
-        recipients: recipients,
-        timestamp: A_Now,
-        campaignName: "Bulk Email Campaign"
-    })
+    payload := Map(
+        "name", "Campaign " . A_Now,
+        "subjects", subjects,
+        "recipients", recipients,
+        "html_template", IsSet(HtmlCodeBox) ? HtmlCodeBox.Value : "<h1>Email Body</h1>",
+        "delay_seconds", 30
+    )
     
-    ; Send to backend via curl
-    RunWait, powershell.exe -NoProfile -Command "
-        (
-            $headers = @{
-                'Authorization' = 'Bearer YOUR_API_TOKEN'
-                'Content-Type' = 'application/json'
-            }
-            
-            $body = @'
-%payload%
-'@
-            
-            try {
-                $response = Invoke-WebRequest `
-                    -Uri '%BackendServerUrl%/api/campaigns/create-from-csv' `
-                    -Method POST `
-                    -Headers $headers `
-                    -Body $body `
-                    -TimeoutSec 30
-                
-                Write-Output $response.Content
-            }
-            catch {
-                Write-Output "Error: $($_.Exception.Message)"
-            }
-        )
-    ", output
+    jsonStr := ObjToJson(payload)
+    
+    ; Create temp JSON file (safer than command-line escaping)
+    tempJsonFile := A_Temp . "\campaign_" . A_TickCount . ".json"
+    FileDelete(tempJsonFile)  ; Clean up if exists
+    FileAppend(jsonStr, tempJsonFile)
+    
+    ; Make HTTP POST via curl (use temp file)
+    dummyToken := "bearer-token-placeholder"  ; TODO: get from OAuth if available
+    cmd := 'curl.exe -s -X POST "' . BackendServerUrl . '/api/campaigns/create-from-csv" \'
+         . ' -H "Authorization: Bearer ' . dummyToken . '" \'
+         . ' -H "Content-Type: application/json" \'
+         . ' -d @"' . tempJsonFile . '"'
+    
+    ; Execute curl (silent output via -s flag)
+    shell := ComObjCreate("WScript.Shell")
+    exec := shell.Exec(ComSpec " /c " cmd)
+    output := exec.StdOut.ReadAll()
+    
+    ; Clean up temp file
+    FileDelete(tempJsonFile)
     
     ; Parse response
-    if (output ~= "success|created|200")
-    {
-        MsgBox, 64, Success, Campaign sent successfully to backend!
-        return true
-    }
-    else
-    {
-        MsgBox, 48, Error, Backend request failed.`nResponse: %output%
+    try {
+        response := JSON.Parse(output)
+        if (response.Has("success") && response["success"] = true) {
+            campaignId := response["campaign_id"]
+            recipCount := recipients.Length
+            ShowToast("✅ Campaign #" . campaignId . " created!`nQueued " . recipCount . " recipients")
+            
+            if (IsSet(logger))
+                logger.Info("Backend campaign sent: ID=" . campaignId . ", recipients=" . recipCount)
+            
+            return true
+        } else {
+            errMsg := response.Has("error") ? response["error"] : "Unknown error"
+            ShowToast("⚠ Backend error:`n" . errMsg)
+            return false
+        }
+    } catch Error as err {
+        ShowToast("⚠ Backend unreachable:`n" . BackendServerUrl . "`n" . err.What)
         return false
     }
 }
 ```
 
-### 2.2 ObjToJson()
-
-Converts AutoHotkey objects/arrays to JSON format:
-
+### Function B: ObjToJson()
 ```autohotkey
-ObjToJson(obj)
-{
-    if (obj == "")
-        return ""
-    
-    type := obj.GetType()
-    
-    if (type == "Array")
-    {
-        result := "["
-        Loop, % obj.Length
-        {
-            if (A_Index > 1)
-                result .= ","
-            result .= ObjToJson(obj[A_Index])
-        }
-        result .= "]"
-        return result
-    }
-    else if (type == "Object" || type == "Map")
-    {
+ObjToJson(obj) {
+    if (obj is Map) {
         result := "{"
         first := true
-        for key, value in obj
-        {
+        for key, value in obj {
             if (!first)
                 result .= ","
+            result .= '"' . key . '":' . ObjToJson(value)
             first := false
-            result .= """" . EscapeJson(key) . """:"
-            result .= ObjToJson(value)
         }
-        result .= "}"
-        return result
+        return result . "}"
+    } else if (obj is Array) {
+        result := "["
+        first := true
+        for item in obj {
+            if (!first)
+                result .= ","
+            result .= ObjToJson(item)
+            first := false
+        }
+        return result . "]"
+    } else if (obj is String) {
+        ; Escape special characters in strings
+        escaped := StrReplace(obj, "\", "\\")
+        escaped := StrReplace(escaped, '"', '\"')
+        escaped := StrReplace(escaped, "`n", "\n")
+        escaped := StrReplace(escaped, "`r", "\r")
+        escaped := StrReplace(escaped, "`t", "\t")
+        return '"' . escaped . '"'
+    } else if (obj is Integer || obj is Float) {
+        return String(obj)
+    } else if (obj = true) {
+        return "true"
+    } else if (obj = false) {
+        return "false"
+    } else {
+        return "null"
     }
-    else if (obj is number)
-        return obj
-    else
-        return """" . EscapeJson(obj) . """"
-}
-
-EscapeJson(str)
-{
-    str := StrReplace(str, "\", "\\")
-    str := StrReplace(str, """", "\""")
-    str := StrReplace(str, "`n", "\n")
-    str := StrReplace(str, "`r", "\r")
-    str := StrReplace(str, A_Tab, "\t")
-    return str
 }
 ```
 
-### 2.3 ValidateBackendConnection()
-
-Tests connectivity to the backend server:
-
+### Function C: ValidateBackendConnection() (Optional)
 ```autohotkey
-ValidateBackendConnection()
-{
-    global BackendServerUrl, BackendTimeout
+ValidateBackendConnection() {
+    global BackendServerUrl, ShowToast
     
-    RunWait, powershell.exe -NoProfile -Command "
-        (
-            try {
-                $response = Invoke-WebRequest `
-                    -Uri '%BackendServerUrl%/api/health' `
-                    -Method GET `
-                    -TimeoutSec 5
-                
-                if ($response.StatusCode -eq 200) {
-                    Write-Output 'Connected'
-                }
-            }
-            catch {
-                Write-Output 'Failed'
-            }
-        )
-    ", output
+    cmd := 'curl.exe -s -o /dev/null -w "%%{http_code}" "' . BackendServerUrl . '/api/health"'
+    shell := ComObjCreate("WScript.Shell")
+    exec := shell.Exec(ComSpec " /c " cmd)
+    httpCode := Trim(exec.StdOut.ReadAll())
     
-    if (output == "Connected")
-    {
-        MsgBox, 64, Success, Backend server is reachable!
+    if (httpCode = 200) {
+        ShowToast("✅ Backend connected!")
         return true
-    }
-    else
-    {
-        MsgBox, 48, Error, Cannot reach backend server at %BackendServerUrl%
+    } else {
+        ShowToast("⚠ Backend returned HTTP " . httpCode)
         return false
     }
 }
@@ -199,137 +185,174 @@ ValidateBackendConnection()
 
 ---
 
-## Part 3: Updated DashboardToggleScript()
+## Part 3: Update DashboardToggleScript() Function
 
-Modify your main campaign trigger to use the backend first:
-
+### Find this function in your script:
 ```autohotkey
-DashboardToggleScript()
-{
-    global UseFallbackAutomation
+DashboardToggleScript(*) {
+    ; ... existing code ...
+}
+```
+
+### Replace its contents with:
+```autohotkey
+DashboardToggleScript(*) {
+    global UseFallbackAutomation, CampaignMode, logger
+    
+    CleanAndSaveSubjects()
+    PreFlightSync()
     
     ; Try backend API first
-    success := SendCampaignToBackend()
+    if (SendCampaignToBackend()) {
+        ; Success! Backend handles the sends now.
+        return
+    }
     
-    ; Fall back to UI automation if API fails
-    if (!success && UseFallbackAutomation)
-    {
-        MsgBox, 36, Fallback, Backend failed. Use UI automation?
-        IfMsgBox, Yes
-        {
-            ; Call your original UI automation code here
-            RunOriginalAutomation()
+    ; If API failed and fallback is enabled, try UI automation
+    if (UseFallbackAutomation) {
+        if (IsSet(logger))
+            logger.Warn("Backend failed, falling back to UI automation")
+        
+        ShowToast("📌 Backend unavailable, using UI automation...")
+        
+        if (CampaignMode) {
+            ToggleCsvScript()
+        } else {
+            ToggleLegacyScript()
         }
-    }
-    else if (success)
-    {
-        MsgBox, 64, Complete, Campaign processed via backend!
+    } else {
+        ShowToast("⚠ Backend API failed and fallback disabled.")
     }
 }
-
-RunOriginalAutomation()
-{
-    ; Your original AutoHotkey UI automation code here
-}
 ```
 
 ---
 
-## Part 4: UI Settings in Tab 3 (Advanced Settings)
+## Part 4: Add Backend Settings to Tab 3 (Advanced Settings)
 
-Add these controls to your GUI for backend configuration:
+### Find the Advanced Settings tab section (look for "Tab 3" or "Advanced")
+
+### Add these lines in that tab (adjust coordinates as needed):
+```autohotkey
+; Backend Integration Section
+MyGui.Add("Text", "x25 y310 w300 c" . t["title"], "🔌 Backend Integration")
+
+; Backend URL input
+MyGui.Add("Text", "x25 y335 w100 c" . t["label"], "Server URL:")
+BackendUrlEdit := MyGui.Add("Edit", "x125 y335 w300 h22", BackendServerUrl)
+BackendUrlEdit.ToolTip := "Backend server (e.g. http://localhost:3000)"
+
+; Fallback checkbox
+UseFallbackChk := MyGui.Add("CheckBox", "x25 y365 w400 Checked" . UseFallbackAutomation, 
+    "☑ Fall back to UI automation if backend is unavailable")
+UseFallbackChk.ToolTip := "If unchecked: fail silently if backend is down"
+
+; Test connection button
+TestBackendBtn := MyGui.Add("Button", "x25 y395 w150 h24", "Test Connection")
+TestBackendBtn.OnEvent("Click", TestBackendConnection)
+
+; Update saved values in SaveDelaySettings() function
+; (See Part 5 below)
+```
+
+---
+
+## Part 5: Update SaveDelaySettings() Function
+
+### Find your `SaveDelaySettings()` function and add these lines:
 
 ```autohotkey
-Gui, Add, GroupBox, x10 y200 w500 h150, Backend Configuration
-Gui, Add, Text, x20 y220, Backend Server URL:
-Gui, Add, Edit, x20 y240 w470 v_BackendUrl, http://localhost:3000
+; (Inside SaveDelaySettings() function, before IniWrite calls)
 
-Gui, Add, Text, x20 y270, API Token:
-Gui, Add, Edit, x20 y290 w470 v_ApiToken Password, 
+; Save backend settings
+global BackendServerUrl, UseFallbackAutomation
+BackendServerUrl := BackendUrlEdit.Value
+UseFallbackAutomation := UseFallbackChk.Value
 
-Gui, Add, CheckBox, x20 y320 v_UseFallback checked, Use UI fallback if API fails
-
-Gui, Add, Button, x20 y350 w100 h30 gTestBackendConnection, Test Connection
+; Write to INI
+IniWrite(BackendServerUrl, iniFile, "BackendSettings", "ServerUrl")
+IniWrite(UseFallbackAutomation ? 1 : 0, iniFile, "BackendSettings", "UseFallback")
 ```
 
----
-
-## Part 5: INI Configuration
-
-Save backend settings to your INI file:
+### And add these lines to the initialization section (look for where INI is read):
 
 ```autohotkey
-SaveBackendSettings()
-{
-    Gui, Submit, NoHide
-    
-    IniWrite, %_BackendUrl%, MyConfig.ini, Backend, ServerUrl
-    IniWrite, %_UseFallback%, MyConfig.ini, Backend, UseFallback
-    
-    MsgBox, 64, Saved, Backend settings saved!
-}
+; Load backend settings from INI
+BackendServerUrl := IniRead(iniFile, "BackendSettings", "ServerUrl", "http://localhost:3000")
+UseFallbackAutomation := IniRead(iniFile, "BackendSettings", "UseFallback", 1)
+```
 
-LoadBackendSettings()
-{
-    IniRead, BackendServerUrl, MyConfig.ini, Backend, ServerUrl, http://localhost:3000
-    IniRead, UseFallbackAutomation, MyConfig.ini, Backend, UseFallback, true
+---
+
+## Part 6: Add Test Connection Handler
+
+### Add this function anywhere in the script:
+```autohotkey
+TestBackendConnection(*) {
+    ShowToast("Testing backend connection...")
+    if (ValidateBackendConnection()) {
+        ShowToast("✅ Backend is reachable!")
+    }
+    ; (error toast shown by ValidateBackendConnection)
 }
 ```
 
 ---
 
-## Part 6: Test Connection Handler
+## Testing Checklist
 
-Add this button handler to test the connection:
+- [ ] Script starts without errors
+- [ ] Backend URL setting visible in Tab 3
+- [ ] "Test Connection" button works
+- [ ] Load CSV file in script
+- [ ] Click "Start (F5)" button
+- [ ] Script shows "Campaign #123 created!" toast
+- [ ] Backend has pending queue items (check database)
+- [ ] Scheduler picks up items every 30s and sends
+
+---
+
+## Troubleshooting
+
+**Script shows "Backend unreachable"**
+- Check: Is backend running? `node server.js`
+- Check: Backend URL correct? Should be `http://localhost:3000`
+- Check: Firewall blocking port 3000?
+
+**"Campaign #X created" but no emails send**
+- Check: Backend scheduler running? Look for "Scheduler: processing batch" in logs
+- Check: Active accounts exist in database? `SELECT * FROM accounts WHERE status = 'active'`
+- Check: Queue table has items? `SELECT COUNT(*) FROM queue WHERE status = 'pending'`
+
+**JSON parsing errors in curl output**
+- Enable debug logging: Uncomment `logger.Debug()` calls
+- Check curl response: Add `ShowToast(output)` after exec to see raw response
+
+**"Authorization: Bearer" error**
+- This is expected if no OAuth token configured
+- Backend normally requires JWT, but test endpoint might bypass
+- Replace `dummyToken` with actual token from `/api/auth/google-url` flow
+
+---
+
+## Advanced: Load Token from OAuth Flow
+
+If your script already does OAuth login, pass the token:
 
 ```autohotkey
-TestBackendConnection:
-{
-    ValidateBackendConnection()
-    return
-}
+; Inside SendCampaignToBackend():
+; global JwtToken  ; Add if you store token globally
+; dummyToken := IsSet(JwtToken) ? JwtToken : "test-token"
 ```
 
 ---
 
-## Backend API Endpoint Requirements
+## Final Notes
 
-Your Node.js backend should implement:
+✅ Backend handles all sending (you can close the script after POSTing)  
+✅ Retry logic automatic (exponential backoff)  
+✅ Tracking server-side (opens, clicks, bounces)  
+✅ Multi-account load balancing (round-robin)  
+✅ 25-50x faster than UI automation (~50 emails/min vs ~1-2/min)  
 
-### POST /api/campaigns/create-from-csv
-
-**Request:**
-```json
-{
-  "subjects": ["Subject 1", "Subject 2"],
-  "recipients": ["email1@example.com", "email2@example.com"],
-  "timestamp": "20231215143022",
-  "campaignName": "Campaign Name"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "campaignId": "unique-id",
-  "message": "Campaign created successfully"
-}
-```
-
-### GET /api/health
-
-Returns HTTP 200 if the backend is operational.
-
----
-
-## Integration Summary
-
-1. **Add the functions** (SendCampaignToBackend, ObjToJson, ValidateBackendConnection) to your script
-2. **Configure globals** with your backend server URL
-3. **Update your main trigger** to call SendCampaignToBackend() first
-4. **Add UI controls** for backend configuration in your settings tab
-5. **Test the connection** before running campaigns
-6. **Implement the backend API** endpoints documented above
-
-This approach gives you the flexibility to use backend API by default while falling back to UI automation if needed, making your campaigns more robust and scalable.
+🚀 Happy sending!

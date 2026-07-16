@@ -290,12 +290,13 @@ export function GoalAlarm({
         </div>
         <Button 
           variant="ghost" 
-          size="icon" 
-          className="ml-auto h-7 w-7 text-muted-foreground hover:text-foreground"
+          size="sm" 
+          className="ml-auto h-7 px-2 text-muted-foreground hover:text-foreground flex items-center gap-1.5 rounded-lg border border-border/40 bg-muted/10 hover:bg-muted/30 transition-all duration-200"
           onClick={() => playSound('alarm', alarmTone)}
           title="Test Selected Chime Sound"
         >
-          <Volume2 className="h-4 w-4" />
+          <Volume2 className="h-5 w-5 text-primary" />
+          <span className="text-[10px] font-bold uppercase tracking-wider">Test Sound</span>
         </Button>
       </div>
 
