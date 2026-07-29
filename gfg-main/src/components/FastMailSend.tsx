@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Send, Mail, Upload, X, MoreVertical, FileText, Save, Trash2, FlaskConical, RefreshCw, Settings, ChevronDown, ChevronUp } from 'lucide-react';
+import { Send, Mail, Upload, X, MoreVertical, FileText, Save, Trash2, FlaskConical, RefreshCw, Settings, ChevronDown, ChevronUp, Cloud, Loader2 } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -75,6 +75,12 @@ interface FastMailSendProps {
   uploadedFileName?: string;
   csvMappings?: Record<string, string>;
   onClearPreview?: () => void;
+  /** Callback to send the current email list + subject + body to the backend as a campaign */
+  onSendViaBackend?: () => void;
+  /** Whether a backend campaign send is in progress */
+  isSendingBackend?: boolean;
+  /** Whether the background scheduler is enabled on the server */
+  schedulerEnabled?: boolean;
 }
 
 

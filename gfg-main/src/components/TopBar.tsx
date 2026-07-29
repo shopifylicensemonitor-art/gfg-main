@@ -25,6 +25,7 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
     SCHEDULER_BATCH_SIZE: '',
     DAILY_LIMIT_DEFAULT: '',
   });
+  const [schedulerEnabled, setSchedulerEnabled] = useState<boolean | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
 
@@ -110,6 +111,7 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
     setShowSettingsModal(true);
     try {
       const s = await api.getSettings();
+      setSchedulerEnabled(s.SCHEDULER_ENABLED === 'true');
       setSettingsForm({
         ADMIN_EMAIL: s.ADMIN_EMAIL || '',
         TRACKING_BASE_URL: s.TRACKING_BASE_URL || '',
@@ -413,7 +415,17 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
           <div className="bg-card text-card-foreground border border-border shadow-2xl rounded-2xl p-6 max-w-md w-full mx-4 animate-in zoom-in-95 duration-200">
             <h3 className="text-lg font-bold tracking-tight mb-1">System Control Panel</h3>
             <p className="text-xs text-muted-foreground mb-4">Configure system parameters and deployment settings.</p>
-            
+            <div className={`rounded-2xl border p-4 mb-4 ${schedulerEnabled === null ? 'bg-muted/30 border-border text-muted-foreground' : schedulerEnabled ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+              <p className="text-xs font-semibold uppercase tracking-wide">Background Scheduler</p>
+              <p className="mt-1 text-[11px] leading-5">
+                {schedulerEnabled === null
+                  ? 'Loading scheduler status…'
+                  : schedulerEnabled
+                    ? 'Scheduler is enabled on this server. Campaign launch actions may proceed.'
+                    : 'Scheduler is disabled on this server. Campaign launch actions are blocked until it is enabled.'
+                }
+              </p>
+            </div>
             <form onSubmit={handleSaveSettings} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-muted-foreground mb-1">Authorized Admin Email</label>

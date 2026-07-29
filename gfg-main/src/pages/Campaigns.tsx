@@ -27,6 +27,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [showForm, setShowForm] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [schedulerEnabled, setSchedulerEnabled] = useState<boolean>(true);
 
   // Spintax & Preview States
   const [listTokens, setListTokens] = useState<string[]>([]);
@@ -87,14 +88,17 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
 
   const loadData = async () => {
     try {
-      const [cRes, lRes, tRes] = await Promise.all([
+      const [cRes, lRes, tRes, sRes] = await Promise.all([
         api.getCampaigns(),
         api.getContactLists(),
-        api.getTemplates()
+        api.getTemplates(),
+        api.getSettings()
       ]);
       setCampaigns(cRes);
       setLists(lRes);
       setTemplates(tRes);
+      // Settings endpoint returns SCHEDULER_ENABLED as 'true'|'false'
+      setSchedulerEnabled(sRes && sRes.SCHEDULER_ENABLED === 'true');
     } catch (e: any) {
       toast({
         variant: 'destructive',
@@ -194,11 +198,19 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
         });
 
         if (launchImmediately) {
-          await api.launchCampaign(res.id);
-          toast({
-            title: 'Campaign launched',
-            description: `Queue processing began for "${name}".`
-          });
+            if (!schedulerEnabled) {
+              toast({
+                variant: 'destructive',
+                title: 'Launch blocked',
+                description: 'Background scheduler is disabled on the server. Enable it before launching campaigns.'
+              });
+            } else {
+              await api.launchCampaign(res.id);
+              toast({
+                title: 'Campaign launched',
+                description: `Queue processing began for "${name}".`
+              });
+            }
         }
 
         // Reset
@@ -236,6 +248,15 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
   const handleLaunch = (id: number) => {
     const action = async () => {
       try {
+        if (!schedulerEnabled) {
+          toast({
+            variant: 'destructive',
+            title: 'Launch blocked',
+            description: 'Background scheduler is disabled on the server. Enable it before launching campaigns.'
+          });
+          return;
+        }
+
         await api.launchCampaign(id);
         toast({
           title: 'Campaign launched',
@@ -354,6 +375,11 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                 Build targeted flows, throttle sending speed, and automate rotating blasts.
               </p>
             </div>
+            {!schedulerEnabled && (
+              <div className="mt-3 sm:mt-0 sm:ml-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+                Background scheduler is disabled on the server. Launch actions are blocked until the scheduler is enabled.
+              </div>
+            )}
             {!showForm && (
               <Button
                 onClick={() => setShowForm(true)}
@@ -663,7 +689,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                 </Button>
                 <Button 
                   onClick={() => handleCreate(true)} 
-                  disabled={loading}
+                  disabled={loading || !schedulerEnabled}
                   className="h-10 text-xs gap-1.5 font-semibold"
                 >
                   <Zap className="h-4 w-4" />
@@ -757,6 +783,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                             size="sm"
                             variant="outline"
                             onClick={() => handleLaunch(c.id)}
+                            disabled={!schedulerEnabled}
                             className="h-8 gap-1 rounded-lg text-xs font-semibold hover:bg-emerald-500/10 hover:text-emerald-500 border-emerald-500/20"
                           >
                             <Play className="h-3.5 w-3.5" />

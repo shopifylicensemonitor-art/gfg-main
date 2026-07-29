@@ -231,6 +231,20 @@ export const api = {
 
   // Campaigns
   getCampaigns: () => apiFetch<Campaign[]>('/api/campaigns'),
+  /** Create campaign from CSV data (emails, subjects, HTML template) and return campaign ID */
+  createCampaignFromCsv: (data: {
+    name: string;
+    subjects: string[];
+    recipients: { email: string; [key: string]: string }[];
+    html_template: string;
+    account_id?: number | null;
+    delay_seconds?: number;
+    start_time?: string;
+    end_time?: string;
+  }) => apiFetch<{ success: boolean; campaign_id: number; message: string }>('/api/campaigns/create-from-csv', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }),
   getCampaign: (id: number) => apiFetch<Campaign>(`/api/campaigns/${id}`),
   createCampaign: (data: Partial<Campaign>) => apiFetch<{ success: boolean; id: number }>('/api/campaigns', {
     method: 'POST',
@@ -354,6 +368,7 @@ export const api = {
     TRACKING_BASE_URL: string;
     SCHEDULER_BATCH_SIZE: string;
     DAILY_LIMIT_DEFAULT: string;
+    SCHEDULER_ENABLED: string;
   }>('/api/auth/settings'),
   updateSettings: (settings: {
     ADMIN_EMAIL?: string;

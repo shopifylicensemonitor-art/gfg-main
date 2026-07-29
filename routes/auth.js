@@ -172,6 +172,8 @@ router.get('/settings', async (req, res) => {
       TRACKING_BASE_URL: settingsMap['TRACKING_BASE_URL'] || process.env.TRACKING_BASE_URL || 'http://localhost:3000',
       SCHEDULER_BATCH_SIZE: settingsMap['SCHEDULER_BATCH_SIZE'] || process.env.SCHEDULER_BATCH_SIZE || '10',
       DAILY_LIMIT_DEFAULT: settingsMap['DAILY_LIMIT_DEFAULT'] || '450',
+      // Expose whether the background scheduler is enabled on the server.
+      SCHEDULER_ENABLED: (process.env.NODE_ENV === 'production' || process.env.ENABLE_SCHEDULER === 'true') ? 'true' : 'false',
     };
 
     res.json(responseSettings);

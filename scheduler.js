@@ -248,7 +248,10 @@ async function processNextItem() {
     LIMIT ?
   `).all(nowIso, BATCH_SIZE);
 
-  if (!items || items.length === 0) return; // Nothing to send
+  if (!items || items.length === 0) {
+    await completeEmptySendingCampaigns(db);
+    return;
+  }
 
   const accountSentInBatch = {};
 
@@ -299,6 +302,7 @@ async function processNextItem() {
         // Delete from queue directly and skip
         await db.prepare("DELETE FROM queue WHERE id = ?").run(item.id);
         logger.info({ recipient: item.recipient_email, campaignId: item.campaign_id }, 'Skipping email send: recipient replied or unsubscribed');
+        await completeCampaignIfNoActiveQueue(db, item.campaign_id);
         continue;
       }
 
@@ -361,7 +365,6 @@ async function processNextItem() {
         await db.prepare("UPDATE queue SET status = 'sent', sent_at = ?, final_subject = ?, final_body = ? WHERE id = ?")
           .run(new Date().toISOString(), finalSubject, finalBody, item.id);
         await db.prepare('UPDATE campaigns SET sent_count = sent_count + 1 WHERE id = ?').run(item.campaign_id);
-        await db.prepare('UPDATE accounts SET daily_sent = daily_sent + 1 WHERE id = ?').run(account.id);
 
         await logEvent(db, item.campaign_id, account.id, item.recipient_email, 'sent', 'OK', item.id);
         logger.info({ recipient: item.recipient_email, sender: account.email }, 'Email sent successfully');
@@ -400,15 +403,7 @@ async function processNextItem() {
           `).run(item.campaign_id, item.recipient_email);
         }
 
-        // Check if campaign is complete (no pending item left for any recipient)
-        const remaining = await db.prepare(
-          "SELECT COUNT(*) as c FROM queue WHERE campaign_id = ? AND status = 'pending'"
-        ).get(item.campaign_id);
-
-        if (remaining && remaining.c === 0) {
-          await db.prepare("UPDATE campaigns SET status = 'completed' WHERE id = ?").run(item.campaign_id);
-          logger.info({ campaignId: item.campaign_id }, 'Campaign completed');
-        }
+        await completeCampaignIfNoActiveQueue(db, item.campaign_id);
       } catch (err) {
         // Decrement the batch count for this account since it failed to send
         if (accountSentInBatch[account.id] > 0) {
@@ -452,6 +447,8 @@ async function processNextItem() {
               logger.error({ err: decErr, account: account.id }, 'Failed to decrement daily_sent after permanent failure');
             }
           }
+
+          await completeCampaignIfNoActiveQueue(db, item.campaign_id);
         }
       }
     }
@@ -472,6 +469,46 @@ async function processNextItem() {
   });
 
   await Promise.all(workers);
+}
+
+async function completeCampaignIfNoActiveQueue(db, campaignId) {
+  try {
+    const row = await db.prepare(`
+      SELECT COUNT(*) as activeCount
+      FROM queue
+      WHERE campaign_id = ? AND status IN ('pending', 'sending')
+    `).get(campaignId);
+
+    if (!row || row.activeCount === 0) {
+      await db.prepare("UPDATE campaigns SET status = 'completed' WHERE id = ? AND status = 'sending'").run(campaignId);
+      logger.info({ campaignId }, 'Campaign marked completed (no active queue items remain)');
+    }
+  } catch (err) {
+    logger.error({ err, campaignId }, 'Error finalizing campaign completion');
+  }
+}
+
+async function completeEmptySendingCampaigns(db) {
+  try {
+    const rows = await db.prepare(`
+      SELECT c.id
+      FROM campaigns c
+      LEFT JOIN (
+        SELECT campaign_id, COUNT(*) as activeCount
+        FROM queue
+        WHERE status IN ('pending', 'sending')
+        GROUP BY campaign_id
+      ) q ON q.campaign_id = c.id
+      WHERE c.status = 'sending' AND COALESCE(q.activeCount, 0) = 0
+    `).all();
+
+    for (const row of rows) {
+      await db.prepare("UPDATE campaigns SET status = 'completed' WHERE id = ?").run(row.id);
+      logger.info({ campaignId: row.id }, 'Campaign marked completed during scheduler sweep (no active queue items)');
+    }
+  } catch (err) {
+    logger.error({ err }, 'Error completing empty sending campaigns');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -527,24 +564,36 @@ async function logEvent(db, campaignId, accountId, recipient, status, message, q
 // Cron: every 30 seconds
 // ---------------------------------------------------------------------------
 
-const sendTask = cron.schedule('*/30 * * * * *', async () => {
-  try {
-    await processNextItem();
-  } catch (err) {
-    logger.error({ err }, 'Unexpected error in cron send task');
-  }
-});
+const schedulerEnabled = process.env.NODE_ENV === 'production' || process.env.ENABLE_SCHEDULER === 'true';
+let sendTask;
+let resetTask;
 
-// Daily reset of account send counters at midnight
-const resetTask = cron.schedule('0 0 * * *', async () => {
-  try {
-    const db = await getDb();
-    await db.prepare("UPDATE accounts SET daily_sent = 0, last_reset = datetime('now')").run();
-    logger.info('Daily send counters reset');
-  } catch (err) {
-    logger.error({ err }, 'Counter reset error');
-  }
-});
+if (schedulerEnabled) {
+  sendTask = cron.schedule('*/30 * * * * *', async () => {
+    try {
+      await processNextItem();
+    } catch (err) {
+      logger.error({ err }, 'Unexpected error in cron send task');
+    }
+  });
+
+  // Daily reset of account send counters at midnight
+  resetTask = cron.schedule('0 0 * * *', async () => {
+    try {
+      const db = await getDb();
+      await db.prepare("UPDATE accounts SET daily_sent = 0, last_reset = datetime('now')").run();
+      logger.info('Daily send counters reset');
+    } catch (err) {
+      logger.error({ err }, 'Counter reset error');
+    }
+  });
+
+  logger.info('Email worker started (every 30s)');
+} else {
+  sendTask = { stop: () => {} };
+  resetTask = { stop: () => {} };
+  logger.info('Email worker is disabled in local development. Set NODE_ENV=production or ENABLE_SCHEDULER=true to enable it.');
+}
 
 function stopScheduler() {
   sendTask.stop();
@@ -552,7 +601,5 @@ function stopScheduler() {
   logger.info('Email worker stopped');
 }
 
-logger.info('Email worker started (every 30s)');
-
-module.exports = { processNextItem, personalise, stopScheduler };
+module.exports = { processNextItem, personalise, completeCampaignIfNoActiveQueue, stopScheduler };
 

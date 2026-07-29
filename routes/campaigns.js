@@ -15,7 +15,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
-const { personalise } = require('../scheduler');
+const { personalise, completeCampaignIfNoActiveQueue } = require('../scheduler');
 
 /** List all campaigns. */
 router.get('/', async (_req, res) => {
@@ -191,6 +191,8 @@ router.delete('/:id', async (req, res) => {
     const db = await getDb();
     const deleteBoth = db.transaction(async (txDb) => {
       await txDb.prepare('DELETE FROM queue WHERE campaign_id = ?').run(req.params.id);
+      await txDb.prepare('DELETE FROM campaign_recipients WHERE campaign_id = ?').run(req.params.id);
+      await txDb.prepare('DELETE FROM campaign_steps WHERE campaign_id = ?').run(req.params.id);
       await txDb.prepare('DELETE FROM campaigns WHERE id = ?').run(req.params.id);
     });
     await deleteBoth();
@@ -499,6 +501,10 @@ router.post('/:id/recipients/status', async (req, res) => {
     });
 
     await tx();
+
+    // Finalize campaign if no active queue items remain after recipient status change.
+    await completeCampaignIfNoActiveQueue(db, req.params.id);
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
