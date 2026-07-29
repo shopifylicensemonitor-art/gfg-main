@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Send, Mail, Upload, X, MoreVertical, FileText, Save, Trash2, FlaskConical, RefreshCw, Settings, ChevronDown, ChevronUp, Cloud, Loader2 } from 'lucide-react';
+import { Send, Mail, Upload, X, MoreVertical, FileText, Save, Trash2, FlaskConical, RefreshCw, Settings, ChevronDown, ChevronUp, Cloud, Loader2, AlertTriangle } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -130,6 +130,9 @@ export function FastMailSend({
   uploadedFileName,
   csvMappings,
   onClearPreview,
+  onSendViaBackend,
+  isSendingBackend = false,
+  schedulerEnabled = true,
 }: FastMailSendProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -667,6 +670,26 @@ export function FastMailSend({
             </>
           )}
         </Button>
+        {onSendViaBackend && (
+          <Button
+            onClick={onSendViaBackend}
+            disabled={isSendingBackend || !schedulerEnabled}
+            className={`h-11 px-3 sm:px-4 text-xs font-bold uppercase tracking-wider rounded-xl flex items-center gap-2 transition-all duration-200 ${
+              schedulerEnabled
+                ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg border-none'
+                : 'bg-muted text-muted-foreground cursor-not-allowed border border-border'
+            }`}
+            title={!schedulerEnabled ? 'Background scheduler is disabled — enable it on the server' : 'Send via backend campaign scheduler'}
+          >
+            {isSendingBackend ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Cloud className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">{isSendingBackend ? 'Sending...' : 'Send via Backend'}</span>
+            <span className="inline sm:hidden">{isSendingBackend ? '...' : 'Backend'}</span>
+          </Button>
+        )}
         <Button
           variant="outline"
           onClick={() => setIsTestDialogOpen(true)}
@@ -678,7 +701,15 @@ export function FastMailSend({
           <span className="hidden sm:inline">Test Draft</span>
         </Button>
       </div>
-      <p className="text-[9px] font-mono text-muted-foreground text-center -mt-2">Pro tip: Press <kbd className="bg-muted px-1.5 py-0.5 rounded border border-border">Ctrl+Enter</kbd> to compile instantly</p>
+      <div className="flex items-center justify-center gap-3 text-[9px] font-mono text-muted-foreground -mt-2">
+        <span>Pro tip: Press <kbd className="bg-muted px-1.5 py-0.5 rounded border border-border">Ctrl+Enter</kbd> to compile instantly</span>
+        {!schedulerEnabled && (
+          <span className="inline-flex items-center gap-1 text-amber-500 font-bold">
+            <AlertTriangle className="h-3 w-3" />
+            Scheduler OFF
+          </span>
+        )}
+      </div>
 
       {/* Save Dialog */}
       <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>

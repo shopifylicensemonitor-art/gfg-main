@@ -621,6 +621,45 @@ ready = (async () => {
       await wrapped.exec("ALTER TABLE accounts ADD COLUMN daily_limit INTEGER DEFAULT 450;");
     } catch (_) {}
     try {
+      await wrapped.exec("ALTER TABLE contacts ADD COLUMN fields TEXT;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE campaign_recipients ADD COLUMN status TEXT DEFAULT 'active';");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE campaign_recipients ADD COLUMN current_step INTEGER DEFAULT 1;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE campaign_recipients ADD COLUMN last_sent_at TEXT;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE campaigns ADD COLUMN total_contacts INTEGER DEFAULT 0;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE campaigns ADD COLUMN sent_count INTEGER DEFAULT 0;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE campaigns ADD COLUMN failed_count INTEGER DEFAULT 0;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE campaigns ADD COLUMN content_variations TEXT;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE campaigns ADD COLUMN content_mode TEXT DEFAULT 'single';");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE campaigns ADD COLUMN body_plain TEXT;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE queue ADD COLUMN fields TEXT;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE queue ADD COLUMN final_subject TEXT;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE queue ADD COLUMN final_body TEXT;");
+    } catch (_) {}
+    try {
       await wrapped.exec("ALTER TABLE queue ADD COLUMN retry_count INTEGER DEFAULT 0;");
     } catch (_) {}
     try {
@@ -628,6 +667,12 @@ ready = (async () => {
     } catch (_) {}
     try {
       await wrapped.exec("ALTER TABLE queue ADD COLUMN campaign_step_id INTEGER;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE queue ADD COLUMN opens_count INTEGER DEFAULT 0;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE queue ADD COLUMN clicks_count INTEGER DEFAULT 0;");
     } catch (_) {}
     try {
       await wrapped.exec("ALTER TABLE logs ADD COLUMN queue_id INTEGER;");

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+  import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AppShell } from '@/components/AppShell';
 import { SEO } from '@/components/SEO';
@@ -209,6 +209,8 @@ const Index = () => {
   const [isSegmentDialogOpen, setIsSegmentDialogOpen] = useState(false);
   const [segmentListName, setSegmentListName] = useState('');
   const [segmentListTotalCount, setSegmentListTotalCount] = useState(0);
+  const [schedulerEnabled, setSchedulerEnabled] = useState<boolean>(true);
+  const [isSendingBackend, setIsSendingBackend] = useState<boolean>(false);
   const [segmentSize, setSegmentSize] = useState<number>(10000);
   const [selectedSegmentIndex, setSelectedSegmentIndex] = useState<number>(0);
   const [isIncompleteDialogOpen, setIsIncompleteDialogOpen] = useState(false);
@@ -356,6 +358,11 @@ const Index = () => {
     api.getContactLists()
       .then(setSavedLists)
       .catch(err => console.error("Error fetching contact lists:", err));
+    
+    // Fetch scheduler status
+    api.getSettings()
+      .then(s => setSchedulerEnabled(s.SCHEDULER_ENABLED === 'true'))
+      .catch(() => {});
   }, []);
 
   // Reconstruct activeVariables from persisted emails on mount
@@ -1031,6 +1038,79 @@ const Index = () => {
     }
   }, [incompleteInfo, replaceEmailEntries, autoScroll]);
 
+  const handleSendViaBackend = useCallback(async () => {
+    if (!emails.length) {
+      toast({
+        title: "No Recipients",
+        description: "Add recipient emails first before sending via backend.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsSendingBackend(true);
+    try {
+      // Build recipients array with all fields
+      const recipients = emails
+        .filter(e => e.isValid)
+        .map(e => ({
+          email: e.email,
+          ...(e.fields || {}),
+          ...(e.name ? { first_name: e.name } : {})
+        }));
+
+      if (recipients.length === 0) {
+        toast({
+          title: "No Valid Recipients",
+          description: "No valid email addresses found in the list.",
+          variant: "destructive"
+        });
+        setIsSendingBackend(false);
+        return;
+      }
+
+      const campaignName = `Fast Send - ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+      const res = await api.createCampaignFromCsv({
+        name: campaignName,
+        subjects: [subject || 'No Subject'],
+        recipients,
+        html_template: body || '',
+        delay_seconds: 30,
+        start_time: '08:00',
+        end_time: '22:00',
+      });
+
+      toast({
+        title: "Campaign Created!",
+        description: res.message || `Campaign #${res.campaign_id} created with ${recipients.length} recipients. The scheduler will process them automatically.`,
+      });
+
+      // Optionally auto-launch the campaign
+      try {
+        const launchRes = await api.launchCampaign(res.campaign_id);
+        toast({
+          title: "Campaign Launched",
+          description: launchRes.message || `Campaign #${res.campaign_id} is now sending. Queue items have been populated.`,
+        });
+      } catch (launchErr: any) {
+        toast({
+          title: "Campaign Saved as Draft",
+          description: `Campaign #${res.campaign_id} was created but auto-launch failed: ${launchErr.message}. Launch it manually from Campaigns page.`,
+          variant: "destructive"
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: "Backend Campaign Failed",
+        description: err.message || "Could not send campaign to backend server. Is the server running?",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSendingBackend(false);
+    }
+  }, [emails, subject, body]);
+
   const handleFileUpload = (file: File) => {
     setIsProcessing(true);
     const isCSV = file.name.toLowerCase().endsWith('.csv');
@@ -1242,6 +1322,9 @@ const Index = () => {
             uploadedFileName={uploadedFileName}
             csvMappings={csvMappings}
             onClearPreview={handleClearPreview}
+            onSendViaBackend={handleSendViaBackend}
+            isSendingBackend={isSendingBackend}
+            schedulerEnabled={schedulerEnabled}
           />
         </ErrorBoundary>
         </AnimatedSection>

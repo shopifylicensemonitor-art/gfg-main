@@ -156,6 +156,12 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
     headers.set('Authorization', `Bearer ${token}`);
   }
 
+  // Inject PIN fallback header from sessionStorage if present (used in local/dev)
+  const pin = sessionStorage.getItem('access_pin');
+  if (pin && !headers.has('X-Access-Pin')) {
+    headers.set('X-Access-Pin', pin);
+  }
+
   const res = await fetch(url, { ...options, headers });
   
   if (!res.ok) {
