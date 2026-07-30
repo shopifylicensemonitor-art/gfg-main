@@ -1,17 +1,29 @@
-User-agent: Googlebot
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
-User-agent: Twitterbot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
+# Robots.txt for Peak Xender (https://send.peakconix.site)
 
 User-agent: *
+# Allow all public marketing, policy, help, and blog pages
 Allow: /
+Allow: /about
+Allow: /contact
+Allow: /help
+Allow: /privacy
+Allow: /terms
+Allow: /blog
+Allow: /blog/*
 
+# Protect private, authenticated app routes & user data
+Disallow: /dashboard
+Disallow: /send
+Disallow: /tracker
+Disallow: /accounts
+Disallow: /campaigns
+Disallow: /templates
+Disallow: /contacts
+Disallow: /logs
+
+# Prevent indexing of sensitive URL parameters (auth tokens/OAuth codes)
+Disallow: /*?token=*
+Disallow: /*?code=*
+
+# Sitemap Location
 Sitemap: https://send.peakconix.site/sitemap.xml
-
