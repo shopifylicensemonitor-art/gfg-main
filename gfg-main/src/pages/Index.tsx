@@ -1219,6 +1219,7 @@ const Index = () => {
       <SEO
         title="Dashboard - Cold Email Personalization & Bulk Sender"
         description="Lightning-fast bulk email outreach and personalization tool. Paste lists, set custom placeholders (name, store, sname), and generate mailto links inside your browser. 100% private, client-side execution."
+        noindex={true}
         keywords={[
           'free bulk email generator',
           'client-side bulk email sender',

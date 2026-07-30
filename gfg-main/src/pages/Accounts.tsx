@@ -267,6 +267,7 @@ export default function Accounts({ requirePin }: AccountsProps) {
       <SEO
         title="Manage Senders - Peak Xender"
         description="Connect and configure rotating Gmail and SMTP accounts with automated daily caps and name personalization."
+        noindex={true}
       />
       <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

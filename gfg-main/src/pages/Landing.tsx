@@ -88,6 +88,35 @@ export default function Landing() {
         title="Peak Xender - Automated Email Outreach & Campaign Management Platform"
         description="Peak Xender is an automated email outreach platform. Connect your Gmail account via Google OAuth to personalize, schedule, and send targeted email campaigns."
         keywords={['Peak Xender', 'cold outreach', 'Gmail OAuth email sender', 'email outreach platform', 'multi-smtp warm-up']}
+        canonicalUrl="https://send.peakconix.site/"
+        schema={[
+          {
+            '@context': 'https://schema.org',
+            '@type': 'WebSite',
+            'name': 'Peak Xender',
+            'url': 'https://send.peakconix.site/',
+            'description': 'Automated email outreach and campaign management platform.'
+          },
+          {
+            '@context': 'https://schema.org',
+            '@type': 'SoftwareApplication',
+            'name': 'Peak Xender',
+            'applicationCategory': 'BusinessApplication',
+            'operatingSystem': 'Web, Android, Desktop',
+            'offers': {
+              '@type': 'Offer',
+              'price': '0.00',
+              'priceCurrency': 'USD'
+            }
+          },
+          {
+            '@context': 'https://schema.org',
+            '@type': 'Organization',
+            'name': 'Peak Xender',
+            'url': 'https://send.peakconix.site/',
+            'logo': 'https://send.peakconix.site/logo-dark.jpg'
+          }
+        ]}
       />
 
       {/* Decorative Blur Orbs */}

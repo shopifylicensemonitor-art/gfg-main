@@ -248,6 +248,7 @@ export default function Contacts({ requirePin }: ContactsProps) {
       <SEO
         title="Manage Contact Lists - Peak Xender"
         description="Upload spreadsheets, filter duplicate emails, and configure target list divisions for cold email sending."
+        noindex={true}
       />
       <div className="space-y-6">
         <div className="space-y-1">

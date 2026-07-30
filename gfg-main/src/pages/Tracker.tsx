@@ -135,6 +135,7 @@ export default function Tracker() {
       <SEO
         title="Outreach Tracker - Peak Xender"
         description="View your outreach logs, track sent emails, see timestamps and send modes, search logs, and export your history to CSV."
+        noindex={true}
       />
       <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

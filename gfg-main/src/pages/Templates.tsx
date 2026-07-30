@@ -158,6 +158,7 @@ export default function Templates({ requirePin }: TemplatesProps) {
       <SEO
         title="Email Outreach Templates - Peak Xender"
         description="Design reusable cold outreach HTML layouts with live preview frames and plain-text fallbacks."
+        noindex={true}
       />
       <div className="space-y-6 font-sans">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

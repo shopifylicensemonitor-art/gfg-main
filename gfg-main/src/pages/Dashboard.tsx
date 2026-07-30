@@ -144,6 +144,7 @@ export default function Dashboard() {
       <SEO
         title="Dashboard - Peak Xender"
         description="Premium analytics and background outbound delivery logs for email campaigns."
+        noindex={true}
       />
 
       <div className="space-y-6">

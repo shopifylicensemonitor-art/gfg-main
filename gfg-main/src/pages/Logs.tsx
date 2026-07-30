@@ -46,6 +46,7 @@ export default function Logs() {
       <SEO
         title="Outreach Dispatch Logs - Peak Xender"
         description="Verify delivery audits, track Gmail rotating records, and inspect error details for cold email sends."
+        noindex={true}
       />
       <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

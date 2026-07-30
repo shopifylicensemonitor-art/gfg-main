@@ -364,6 +364,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
       <SEO
         title="Campaigns Scheduler - Peak Xender"
         description="Compose bulk email sequences, set time schedules, adjust rotation speeds, and launch cold outreach."
+        noindex={true}
       />
       <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
