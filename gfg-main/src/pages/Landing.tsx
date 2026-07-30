@@ -85,9 +85,9 @@ export default function Landing() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-primary/30 relative overflow-hidden scrolling-watermark">
       <SEO
-        title="Peak Xender - Bulk Outreach & Client-Side Personalization Console"
-        description="The ultimate private, browser-based cold outreach sender. rotate multiple sender mailboxes, bypass spam, auto-parse headerless CSVs, and optimize delivery."
-        keywords={['cold outreach', 'saas landing page', 'mailto bulk sender', 'private email tools', 'multi-smtp warm-up']}
+        title="Peak Xender - Automated Email Outreach & Campaign Management Platform"
+        description="Peak Xender is an automated email outreach platform. Connect your Gmail account via Google OAuth to personalize, schedule, and send targeted email campaigns."
+        keywords={['Peak Xender', 'cold outreach', 'Gmail OAuth email sender', 'email outreach platform', 'multi-smtp warm-up']}
       />
 
       {/* Decorative Blur Orbs */}
@@ -132,18 +132,18 @@ export default function Landing() {
       <section className="relative pt-12 pb-16 sm:pt-20 sm:pb-24 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6 reveal-section">
         <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full border border-primary/20 bg-primary/5 text-primary text-xs font-semibold animate-pulse">
           <Sparkles className="h-3.5 w-3.5" />
-          <span>Next-Generation Outreach Automation</span>
+          <span>Peak Xender — Email Outreach & Campaign Platform</span>
         </div>
 
         <h1 className="text-4xl sm:text-6xl font-black tracking-tight text-white max-w-4xl mx-auto leading-[1.1]">
-          Outreach at Scale.<br />
+          Peak Xender: Automated Email Outreach.<br />
           <span className="bg-clip-text text-transparent bg-gradient-to-r from-primary to-emerald-400">
-            Zero Spam. 100% Private.
+            Connect Gmail via OAuth & Scale Delivery.
           </span>
         </h1>
 
-        <p className="text-base sm:text-lg text-slate-400 max-w-2xl mx-auto leading-relaxed">
-          The ultimate client-side email builder. Personalize lists, rotate sender mailboxes, and bypass spam filtering checks with automatic link shuffling — all inside your web browser.
+        <p className="text-base sm:text-lg text-slate-400 max-w-3xl mx-auto leading-relaxed">
+          Peak Xender is an automated email outreach and campaign management platform. Connect your Gmail account securely via Google OAuth to personalize templates, manage contact lists, and schedule automated outreach campaigns.
         </p>
 
         <div className="flex flex-wrap justify-center gap-3 pt-3">

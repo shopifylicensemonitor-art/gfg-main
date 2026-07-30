@@ -1,7 +1,7 @@
 {
-    "name": "Peakconix Sender",
-    "short_name": "Peakconix",
-    "description": "Accelerated email outreach tool",
+    "name": "Peak Xender",
+    "short_name": "Peak Xender",
+    "description": "Automated email outreach and campaign management platform",
     "start_url": "/",
     "scope": "/",
     "display": "standalone",
