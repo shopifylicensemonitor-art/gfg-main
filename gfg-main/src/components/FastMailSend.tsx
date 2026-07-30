@@ -23,7 +23,6 @@ import {
 } from '@/components/ui/dialog';
 import type { EmailTemplate } from '@/hooks/useTemplates';
 import type { ContactListInfo } from '@/api';
-import { extractEmailsFromText } from '@/hooks/useEmailList';
 import { toast } from '@/hooks/use-toast';
 import { PUBLIC_PROVIDERS } from '@/lib/publicProviders';
 import { buildMailtoLink } from '@/lib/randomizeMailto';
