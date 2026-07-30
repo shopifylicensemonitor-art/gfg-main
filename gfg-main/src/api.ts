@@ -139,6 +139,16 @@ export interface Template {
 // Base Fetch Wrapper
 // ---------------------------------------------------------------------------
 
+/** Clear expired token and redirect to login page */
+function handleAuthError() {
+  localStorage.removeItem('auth_token');
+  // Only redirect if not already on login or landing page
+  const path = window.location.pathname;
+  if (path !== '/login' && path !== '/') {
+    window.location.href = '/login';
+  }
+}
+
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${BASE_URL}${endpoint}`;
   
@@ -163,6 +173,21 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
   }
 
   const res = await fetch(url, { ...options, headers });
+
+  // Global 401 handler: token expired or invalid → clear & redirect
+  if (res.status === 401) {
+    handleAuthError();
+    let errMsg = 'Session expired. Please log in again.';
+    try {
+      const errBody = await res.json();
+      if (errBody.message || errBody.error) {
+        errMsg = errBody.message || errBody.error;
+      }
+    } catch {
+      // Ignore parsing error
+    }
+    throw new Error(errMsg);
+  }
   
   if (!res.ok) {
     let errMsg = `API Error: ${res.statusText} (${res.status})`;

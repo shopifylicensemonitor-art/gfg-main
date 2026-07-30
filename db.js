@@ -24,7 +24,7 @@ function createPgAdapter() {
   const { Pool } = require('pg');
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL.includes('supabase')
+    ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('supabase')
       ? { rejectUnauthorized: false }
       : undefined,
   });
@@ -579,7 +579,9 @@ const PG_DDL = `
 // ============================================================================
 
 ready = (async () => {
-  const usePg = process.env.USE_SQLITE === 'true' ? false : !!process.env.DATABASE_URL;
+  const forceSqlite = process.env.USE_SQLITE === 'true';
+  const hasPgUrl = !!process.env.DATABASE_URL;
+  const usePg = !forceSqlite && hasPgUrl;
 
   // Performance indexes (idempotent — safe to run on every startup)
   const INDEX_DDL = `
@@ -592,28 +594,35 @@ ready = (async () => {
   if (usePg) {
     console.log('Connecting to PostgreSQL (Supabase)...');
     const adapter = createPgAdapter();
-    await adapter.exec(PG_DDL);
     try {
-      await adapter.exec("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS daily_limit INTEGER DEFAULT 450;");
-    } catch (_) {}
-    try {
-      await adapter.exec("ALTER TABLE queue ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;");
-    } catch (_) {}
-    try {
-      await adapter.exec("ALTER TABLE queue ADD COLUMN IF NOT EXISTS step_number INTEGER DEFAULT 1;");
-    } catch (_) {}
-    try {
-      await adapter.exec("ALTER TABLE queue ADD COLUMN IF NOT EXISTS campaign_step_id INTEGER;");
-    } catch (_) {}
-    try {
-      await adapter.exec("ALTER TABLE logs ADD COLUMN IF NOT EXISTS queue_id INTEGER;");
-    } catch (_) {}
-    try {
-      await adapter.exec(INDEX_DDL);
-    } catch (_) {}
-    console.log('PostgreSQL database initialised successfully.');
-    return adapter;
-  } else {
+      await adapter.exec(PG_DDL);
+      try {
+        await adapter.exec("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS daily_limit INTEGER DEFAULT 450;");
+      } catch (_) {}
+      try {
+        await adapter.exec("ALTER TABLE queue ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;");
+      } catch (_) {}
+      try {
+        await adapter.exec("ALTER TABLE queue ADD COLUMN IF NOT EXISTS step_number INTEGER DEFAULT 1;");
+      } catch (_) {}
+      try {
+        await adapter.exec("ALTER TABLE queue ADD COLUMN IF NOT EXISTS campaign_step_id INTEGER;");
+      } catch (_) {}
+      try {
+        await adapter.exec("ALTER TABLE logs ADD COLUMN IF NOT EXISTS queue_id INTEGER;");
+      } catch (_) {}
+      try {
+        await adapter.exec(INDEX_DDL);
+      } catch (_) {}
+      console.log('PostgreSQL database initialised successfully.');
+      return adapter;
+    } catch (err) {
+      console.warn('PostgreSQL unavailable, falling back to SQLite:', err.message);
+    }
+  }
+
+  // Fallback to SQLite if Postgres is disabled, unavailable, or misconfigured.
+  {
     console.log('Using local SQLite database...');
     const { wrapped } = await createSqliteAdapter();
     await wrapped.exec(SQLITE_DDL);

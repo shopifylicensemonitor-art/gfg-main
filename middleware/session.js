@@ -16,6 +16,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'peakxender-dev-secret-change-me';
  * while enabling the new auth flow.
  */
 function requireAuth(req, res, next) {
+  // Allow public access to OAuth callback and auth-url generation
+  if (req.path === '/callback' || req.path === '/auth-url') {
+    return next();
+  }
+
   // Try JWT Bearer token
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -25,7 +30,7 @@ function requireAuth(req, res, next) {
       req.user = decoded;
       return next();
     } catch (_) {
-      return res.status(401).json({ error: 'Unauthorized. Invalid or expired token.' });
+      // Token is invalid or expired; fall through to check PIN fallback below
     }
   }
 

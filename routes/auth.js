@@ -46,6 +46,28 @@ router.get('/google-url', (_req, res) => {
   }
 });
 
+/** PIN-based login endpoint for quick local/dev authentication. */
+router.post('/pin-login', async (req, res) => {
+  const { pin } = req.body;
+  const configuredPin = process.env.ACCESS_PIN || '1234';
+
+  if (!pin || String(pin) !== String(configuredPin)) {
+    return res.status(401).json({ error: 'Invalid PIN. Please check ACCESS_PIN in your .env file.' });
+  }
+
+  try {
+    const token = jwt.sign(
+      { id: 'admin-pin', email: process.env.ADMIN_EMAIL || 'admin@local', name: 'Admin (PIN)', role: 'admin' },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRY }
+    );
+
+    res.json({ success: true, token, user: { name: 'Admin', role: 'admin' } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /** OAuth callback — exchange code, verify admin email, issue JWT. */
 router.get('/callback', async (req, res) => {
   const { code } = req.query;
