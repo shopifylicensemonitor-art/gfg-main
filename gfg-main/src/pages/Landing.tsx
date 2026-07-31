@@ -138,6 +138,7 @@ export default function Landing() {
           </div>
 
           <nav className="hidden md:flex items-center gap-6 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <a href="#about" className="hover:text-white transition-colors">About</a>
             <a href="#features" className="hover:text-white transition-colors">Features</a>
             <a href="#demo" className="hover:text-white transition-colors">Interactive Demo</a>
             <a href="#security" className="hover:text-white transition-colors">Security</a>
@@ -253,6 +254,68 @@ export default function Landing() {
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* What is Peak Xender — App Purpose Section (Google OAuth Verification) */}
+      <section id="about" className="py-16 sm:py-20 bg-gradient-to-b from-slate-950 to-slate-900 border-y border-slate-900/60 relative reveal-section">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(99,102,241,0.06),transparent_60%)] pointer-events-none" />
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
+          <div className="text-center space-y-3">
+            <h2 className="text-xs uppercase tracking-widest text-primary font-bold">About This Application</h2>
+            <h3 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-white">What is Peak Xender?</h3>
+          </div>
+
+          <div className="bg-slate-900/50 border border-slate-800/60 rounded-2xl p-6 sm:p-8 space-y-5 text-sm text-slate-300 leading-relaxed">
+            <p>
+              <strong className="text-white">Peak Xender</strong> is an automated email outreach and campaign management platform designed for businesses and professionals who need to send personalized, high-volume email campaigns efficiently.
+            </p>
+            <p>
+              The application enables users to:
+            </p>
+            <ul className="list-disc list-inside space-y-2 pl-2 text-slate-400">
+              <li>
+                <strong className="text-slate-200">Connect Gmail accounts via Google OAuth 2.0</strong> — Users securely authorize Peak Xender to send emails on their behalf through Google's standard OAuth consent flow. Peak Xender uses the Gmail API (<code className="text-primary/80 bg-primary/5 px-1 rounded text-xs">gmail.send</code> scope) to dispatch outreach emails from the user's own Gmail mailbox.
+              </li>
+              <li>
+                <strong className="text-slate-200">Import and manage contact lists</strong> — Upload CSV files containing recipient information. The built-in parser auto-detects column headers and maps merge-tag variables (e.g., name, company, niche).
+              </li>
+              <li>
+                <strong className="text-slate-200">Personalize email templates</strong> — Create reusable templates with dynamic placeholder variables that are replaced per-recipient at send time, ensuring each email is uniquely personalized.
+              </li>
+              <li>
+                <strong className="text-slate-200">Schedule and automate campaign delivery</strong> — Configure send schedules with time-zone-aware dispatch windows, batch sizes, and inter-email delays to maintain healthy mailbox reputation.
+              </li>
+              <li>
+                <strong className="text-slate-200">Rotate across multiple sender accounts</strong> — Distribute outreach volume across several connected Gmail or SMTP accounts to preserve deliverability and avoid per-account sending limits.
+              </li>
+              <li>
+                <strong className="text-slate-200">Track campaign performance</strong> — Monitor open rates, click-through rates, bounces, and delivery status in real time from the analytics dashboard.
+              </li>
+            </ul>
+
+            <div className="border-t border-slate-800/60 pt-5 space-y-3">
+              <h4 className="text-white font-bold text-base">How Peak Xender Uses Google Account Data</h4>
+              <p className="text-slate-400">
+                When you connect your Google account, Peak Xender requests limited access to send emails on your behalf via the Gmail API. Specifically:
+              </p>
+              <ul className="list-disc list-inside space-y-1.5 pl-2 text-slate-400 text-xs sm:text-sm">
+                <li>Peak Xender <strong className="text-slate-200">only</strong> uses the <code className="text-primary/80 bg-primary/5 px-1 rounded text-xs">gmail.send</code> permission to send outreach emails that you have explicitly configured and scheduled.</li>
+                <li>Peak Xender does <strong className="text-slate-200">not</strong> read, modify, or delete any existing emails in your inbox or sent folder.</li>
+                <li>Peak Xender does <strong className="text-slate-200">not</strong> access your Google Contacts, Calendar, Drive, or any other Google service.</li>
+                <li>OAuth tokens are stored securely and are used solely for authenticated email dispatch. You can revoke access at any time from your <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Google Account Permissions</a> page.</li>
+              </ul>
+            </div>
+
+            <div className="border-t border-slate-800/60 pt-5">
+              <p className="text-xs text-slate-500">
+                For full details on data handling, please review our{' '}
+                <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link>{' '}
+                and{' '}
+                <Link to="/terms" className="text-primary hover:underline">Terms of Service</Link>.
+              </p>
             </div>
           </div>
         </div>
