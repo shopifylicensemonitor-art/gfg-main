@@ -564,16 +564,33 @@ export default function Landing() {
       </section>
 
       {/* Footer */}
-      <footer className="mt-auto border-t border-slate-900 bg-slate-950 py-8 text-center text-[10px] text-slate-500 font-mono">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-1.5">
-            <span>Peak Xender Outreach Console v3.4.0</span>
+      <footer className="mt-auto border-t border-slate-800 bg-slate-950 py-10 text-slate-400">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
+            {/* Brand */}
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg overflow-hidden bg-slate-900 border border-slate-800">
+                <img src="/logo-dark.jpg" alt="Peak Xender Logo" className="h-full w-full object-contain" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-sm font-bold text-white">Peak Xender</span>
+                <span className="text-[10px] text-slate-500 font-mono">Automated Email Outreach Platform</span>
+              </div>
+            </div>
+
+            {/* Links */}
+            <nav className="flex flex-wrap items-center justify-center gap-5 text-xs font-semibold">
+              <Link to="/privacy" className="text-slate-300 hover:text-white transition-colors underline underline-offset-2">Privacy Policy</Link>
+              <Link to="/terms" className="text-slate-300 hover:text-white transition-colors underline underline-offset-2">Terms of Service</Link>
+              <Link to="/contact" className="hover:text-white transition-colors">Contact / Support</Link>
+              <Link to="/blog" className="hover:text-white transition-colors">Blog</Link>
+              <Link to="/about" className="hover:text-white transition-colors">About</Link>
+            </nav>
           </div>
-          <div className="flex gap-4">
-            <Link to="/blog" className="hover:text-slate-300">Blog</Link>
-            <Link to="/privacy" className="hover:text-slate-300">Privacy</Link>
-            <Link to="/terms" className="hover:text-slate-300">Terms</Link>
-            <Link to="/contact" className="hover:text-slate-300">Support</Link>
+
+          <div className="mt-6 pt-4 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-slate-500">
+            <span>© {new Date().getFullYear()} Peak Xender. All rights reserved.</span>
+            <span className="font-mono">send.peakconix.site</span>
           </div>
         </div>
       </footer>
