@@ -22,11 +22,15 @@ let ready = null; // Promise that resolves to the wrapped db
 
 function createPgAdapter() {
   const { Pool } = require('pg');
+  const dbUrl = process.env.DATABASE_URL || '';
+  const isSupabase = dbUrl.includes('supabase') || dbUrl.includes('pooler');
+  
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('supabase')
-      ? { rejectUnauthorized: false }
-      : undefined,
+    connectionString: dbUrl,
+    ssl: isSupabase || dbUrl.includes('sslmode=') ? { rejectUnauthorized: false } : undefined,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 10000,
+    max: 10,
   });
 
   /** Convert SQLite-style `?` placeholders to PG-style `$1, $2, ...` */
