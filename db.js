@@ -148,8 +148,12 @@ function createSqliteAdapter() {
   const initSqlJs = require('sql.js');
   const fs = require('fs');
   const path = require('path');
+  const os = require('os');
 
-  const DB_PATH = path.join(__dirname, 'mailflow.db');
+  const isServerless = !!(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.VERCEL);
+  const DB_PATH = isServerless 
+    ? path.join(os.tmpdir(), 'mailflow.db') 
+    : path.join(__dirname, 'mailflow.db');
   let rawDb = null;
 
   // Debounced async save to avoid blocking the event loop on every write.
@@ -158,11 +162,12 @@ function createSqliteAdapter() {
 
   async function doSave() {
     if (!rawDb) return;
-    const data = rawDb.export();
-    // writeFile returns a promise
-    saveInProgress = fs.promises.writeFile(DB_PATH, Buffer.from(data));
     try {
+      const data = rawDb.export();
+      saveInProgress = fs.promises.writeFile(DB_PATH, Buffer.from(data));
       await saveInProgress;
+    } catch (err) {
+      console.warn('SQLite disk save skipped (read-only filesystem or serverless context):', err.message);
     } finally {
       saveInProgress = null;
     }
