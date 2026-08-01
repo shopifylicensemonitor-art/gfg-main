@@ -53,6 +53,9 @@ export default function Privacy() {
                                     <li><code>https://www.googleapis.com/auth/userinfo.email</code>: Identifies your connected Gmail address to display within your secure account dashboard.</li>
                                     <li><code>https://www.googleapis.com/auth/userinfo.profile</code>: Accesses your basic profile information (such as profile picture and account name) to personalize your account workspace.</li>
                                 </ul>
+                                <p className="leading-relaxed">
+                                    The Gmail send scope is required because Peak Xender is an outreach campaign platform that lets users dispatch messages from the Gmail mailbox they own after explicitly choosing to send a campaign from the app. Peak Xender uses this permission only to create and send outbound emails that the user has configured and scheduled; it does not read inbox content or access unrelated Google services.
+                                </p>
                                 <div className="p-4 rounded-lg bg-primary/10 border border-primary/30 text-sm leading-relaxed font-semibold text-primary">
                                     Peak Xender's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer" className="underline hover:text-white">Google API Services User Data Policy</a>, including the Limited Use requirements.
                                 </div>

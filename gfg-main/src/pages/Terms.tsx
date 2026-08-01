@@ -48,6 +48,9 @@ export default function Terms() {
                                 <p className="leading-relaxed">
                                     Peak Xender is an automated email campaign management platform. We provide tools to connect custom SMTP servers or Google accounts (via OAuth 2.0) to dispatch, personalize, schedule, and track targeted email campaigns.
                                 </p>
+                                <p className="leading-relaxed">
+                                    When a user connects a Google account, Peak Xender requests the Gmail send permission because the app must be able to send outreach messages from the user’s own mailbox after the user explicitly initiates a campaign send. The permission is used solely for outbound dispatch and is not used to read inbox messages or access unrelated Google data.
+                                </p>
                             </section>
 
                             <section className="space-y-4">

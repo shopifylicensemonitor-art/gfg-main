@@ -41,6 +41,12 @@ To connect Gmail accounts (via OAuth2) and authenticate admins, you must configu
 5. **Test Users**:
    - Add the Gmail addresses you intend to use as sender accounts or administrators. Since the app is in the "Testing" phase, only these listed accounts will be permitted to connect.
 
+### Verification Notes for Google OAuth Review
+- Google may ask for a clear justification for the sensitive scope you request. Use the following wording in the verification form:
+  - "Peak Xender requests access to the Gmail send scope because it is an outreach campaign platform that lets users send emails from their own Gmail mailbox after they explicitly choose to dispatch a campaign from the app. The permission is used only to send outbound messages the user configured and scheduled. Peak Xender does not read inbox content, access Contacts/Drive/Calendar, or use Gmail data for unrelated purposes."
+- Prepare a short demo video showing: 1) the user signing in to Peak Xender, 2) connecting a Gmail account, 3) creating a campaign, 4) sending or scheduling a message, and 5) the app completing the send from the connected mailbox.
+- If Google asks for a demo video link, use a public video URL such as a YouTube or Loom link that clearly shows the end-to-end flow.
+
 ### Step 1.3: Generate OAuth Client Credentials
 1. Go to **APIs & Services** > **Credentials**.
 2. Click **Create Credentials** > **OAuth Client ID**.

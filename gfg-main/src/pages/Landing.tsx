@@ -303,6 +303,7 @@ export default function Landing() {
               </p>
               <ul className="list-disc list-inside space-y-1.5 pl-2 text-slate-400 text-xs sm:text-sm">
                 <li>Peak Xender <strong className="text-slate-200">only</strong> uses the <code className="text-primary/80 bg-primary/5 px-1 rounded text-xs">gmail.send</code> permission to send outreach emails that you have explicitly configured and scheduled.</li>
+                <li>The <code className="text-primary/80 bg-primary/5 px-1 rounded text-xs">gmail.send</code> scope is required because Peak Xender is an outreach campaign platform that lets a user dispatch messages from their own Gmail mailbox after they choose to send a campaign from the app.</li>
                 <li>Peak Xender does <strong className="text-slate-200">not</strong> read, modify, or delete any existing emails in your inbox or sent folder.</li>
                 <li>Peak Xender does <strong className="text-slate-200">not</strong> access your Google Contacts, Calendar, Drive, or any other Google service.</li>
                 <li>OAuth tokens are stored securely and are used solely for authenticated email dispatch. You can revoke access at any time from your <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Google Account Permissions</a> page.</li>
