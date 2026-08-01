@@ -24,6 +24,8 @@ const Campaigns = lazy(() => import("./pages/Campaigns"));
 const Templates = lazy(() => import("./pages/Templates"));
 const Contacts = lazy(() => import("./pages/Contacts"));
 const Logs = lazy(() => import("./pages/Logs"));
+const AISettings = lazy(() => import("./pages/AISettings"));
+const Inbox = lazy(() => import("./pages/Inbox"));
 
 const Blog = lazy(() => import("./pages/Blog"));
 const BlogPost = lazy(() => import("./pages/BlogPost"));
@@ -156,6 +158,22 @@ const App = () => {
               element={
                 <ProtectedRoute>
                   <Logs />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/ai-settings" 
+              element={
+                <ProtectedRoute>
+                  <AISettings />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/inbox" 
+              element={
+                <ProtectedRoute>
+                  <Inbox />
                 </ProtectedRoute>
               } 
             />

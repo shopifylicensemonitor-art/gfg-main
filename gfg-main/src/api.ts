@@ -135,6 +135,40 @@ export interface Template {
   created_at: string;
 }
 
+export interface AIConfig {
+  configured: boolean;
+  provider?: string;
+  baseUrl?: string;
+  model?: string;
+  maskedApiKey?: string;
+}
+
+export interface AIRules {
+  knowledge?: string;
+  initial?: string;
+  followup_1?: string;
+  followup_2?: string;
+  objection?: string;
+}
+
+export interface InboxMessage {
+  id: number;
+  account_id: number | null;
+  account_email: string | null;
+  sender_email: string;
+  recipient_email: string;
+  subject: string | null;
+  body_text: string | null;
+  body_html: string | null;
+  sentiment: 'hot_lead' | 'unsubscribe' | 'question' | 'neutral';
+  is_read: number;
+  created_at: string;
+  contact_list?: string;
+  contact_fields?: Record<string, string>;
+  store_url?: string;
+  store_name?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Base Fetch Wrapper
 // ---------------------------------------------------------------------------
@@ -415,4 +449,46 @@ export const api = {
     sessionStorage.removeItem('access_pin');
     return Promise.resolve({ success: true });
   },
+
+  // AI Integration
+  getAIConfig: () => apiFetch<AIConfig>('/api/ai/config'),
+  saveAIConfig: (data: { provider: string; apiKey: string; baseUrl: string; model: string }) => apiFetch<{ success: boolean; message: string }>('/api/ai/config', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }),
+  testAIConnection: () => apiFetch<{ success: boolean; response?: string; error?: string }>('/api/ai/test', { method: 'POST' }),
+  getAIRules: () => apiFetch<AIRules>('/api/ai/rules'),
+  saveAIRules: (rules: AIRules) => apiFetch<{ success: boolean; message: string }>('/api/ai/rules', {
+    method: 'POST',
+    body: JSON.stringify({ rules })
+  }),
+  aiGenerate: (data: { prompt: string; stage?: string; contactFields?: Record<string, string> }) => apiFetch<{ success: boolean; subject: string; body_html: string }>('/api/ai/generate', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }),
+  aiRewrite: (data: { subject?: string; body: string; instruction?: string }) => apiFetch<{ success: boolean; subject: string; body_html: string }>('/api/ai/rewrite', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }),
+  aiSpintax: (text: string) => apiFetch<{ success: boolean; spintax: string }>('/api/ai/spintax', {
+    method: 'POST',
+    body: JSON.stringify({ text })
+  }),
+  aiSubjects: (body: string, count?: number) => apiFetch<{ success: boolean; subjects: string[] }>('/api/ai/subjects', {
+    method: 'POST',
+    body: JSON.stringify({ body, count })
+  }),
+  aiReplyDraft: (data: { incomingSubject?: string; incomingBody: string; senderEmail: string; contactFields?: Record<string, string> }) => apiFetch<{ success: boolean; replyDraft: string }>('/api/ai/reply-draft', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }),
+
+  // Inbox & Two-Way Receiving
+  getInboxMessages: (limit?: number) => apiFetch<InboxMessage[]>(`/api/inbox${limit ? `?limit=${limit}` : ''}`),
+  syncInbox: () => apiFetch<{ success: boolean; message: string }>('/api/inbox/sync', { method: 'POST' }),
+  markInboxRead: (id: number) => apiFetch<{ success: boolean }>(`/api/inbox/${id}/read`, { method: 'POST' }),
+  replyToInboxMessage: (id: number, replyBody: string) => apiFetch<{ success: boolean; message: string }>(`/api/inbox/${id}/reply`, {
+    method: 'POST',
+    body: JSON.stringify({ replyBody })
+  }),
 };

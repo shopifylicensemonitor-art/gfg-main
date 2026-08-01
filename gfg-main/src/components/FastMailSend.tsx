@@ -27,6 +27,7 @@ import { toast } from '@/hooks/use-toast';
 import { PUBLIC_PROVIDERS } from '@/lib/publicProviders';
 import { buildMailtoLink } from '@/lib/randomizeMailto';
 import { CSVPreview } from './CSVPreview';
+import { AIToolbar } from './AIToolbar';
 
 interface FastMailSendProps {
   onAddEmails: (emails: string[]) => void;
@@ -416,6 +417,18 @@ export function FastMailSend({
           </div>
         )}
       </div>
+
+      {/* AI Copywriter Toolbar */}
+      <AIToolbar
+        onInsertGenerated={(aiSubject, aiBody) => {
+          onSubjectChange(aiSubject);
+          onBodyChange(aiBody);
+        }}
+        currentSubject={subject}
+        currentBody={body}
+        onUpdateBody={onBodyChange}
+        onUpdateSubject={onSubjectChange}
+      />
 
       {/* Subject Line */}
       <div className="space-y-2">

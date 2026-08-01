@@ -80,6 +80,8 @@ app.use('/api/campaigns', generalLimiter, requireAuth, require('./routes/campaig
 app.use('/api/contacts', generalLimiter, requireAuth, require('./routes/contacts'));
 app.use('/api/queue', generalLimiter, requireAuth, require('./routes/queue'));
 app.use('/api/templates', generalLimiter, requireAuth, require('./routes/templates'));
+app.use('/api/ai', generalLimiter, requireAuth, require('./routes/ai'));
+app.use('/api/inbox', generalLimiter, requireAuth, require('./routes/inbox'));
 
 // Tracking routes are PUBLIC
 app.use('/api/track', require('./routes/tracking'));

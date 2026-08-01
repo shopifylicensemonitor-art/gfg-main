@@ -465,6 +465,35 @@ const SQLITE_DDL = `
     state_data TEXT NOT NULL,
     updated_at TEXT DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS ai_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL DEFAULT 'openrouter',
+    api_key_encrypted TEXT NOT NULL,
+    base_url TEXT NOT NULL DEFAULT 'https://openrouter.ai/api/v1',
+    model TEXT NOT NULL DEFAULT 'openai/gpt-4o-mini',
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS ai_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_type TEXT NOT NULL UNIQUE,
+    content TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS inbox_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER,
+    sender_email TEXT NOT NULL,
+    recipient_email TEXT NOT NULL,
+    subject TEXT,
+    body_text TEXT,
+    body_html TEXT,
+    sentiment TEXT DEFAULT 'neutral',
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
 `;
 
 const PG_DDL = `
@@ -485,6 +514,11 @@ const PG_DDL = `
     smtp_user TEXT,
     smtp_pass TEXT,
     smtp_secure INTEGER DEFAULT 1,
+    imap_host TEXT,
+    imap_port INTEGER,
+    imap_user TEXT,
+    imap_pass TEXT,
+    imap_secure INTEGER DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT NOW()
   );
 
@@ -594,6 +628,35 @@ const PG_DDL = `
     state_data TEXT NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW()
   );
+
+  CREATE TABLE IF NOT EXISTS ai_config (
+    id SERIAL PRIMARY KEY,
+    provider TEXT NOT NULL DEFAULT 'openrouter',
+    api_key_encrypted TEXT NOT NULL,
+    base_url TEXT NOT NULL DEFAULT 'https://openrouter.ai/api/v1',
+    model TEXT NOT NULL DEFAULT 'openai/gpt-4o-mini',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS ai_rules (
+    id SERIAL PRIMARY KEY,
+    rule_type TEXT NOT NULL UNIQUE,
+    content TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS inbox_messages (
+    id SERIAL PRIMARY KEY,
+    account_id INTEGER,
+    sender_email TEXT NOT NULL,
+    recipient_email TEXT NOT NULL,
+    subject TEXT,
+    body_text TEXT,
+    body_html TEXT,
+    sentiment TEXT DEFAULT 'neutral',
+    is_read INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
 `;
 
 // ============================================================================
@@ -611,6 +674,8 @@ ready = (async () => {
     CREATE INDEX IF NOT EXISTS idx_queue_scheduled_at ON queue(scheduled_at);
     CREATE INDEX IF NOT EXISTS idx_contacts_list_name ON contacts(list_name);
     CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_inbox_recipient ON inbox_messages(recipient_email);
+    CREATE INDEX IF NOT EXISTS idx_inbox_created_at ON inbox_messages(created_at);
   `;
 
   if (usePg) {
@@ -620,6 +685,13 @@ ready = (async () => {
       await adapter.exec(PG_DDL);
       try {
         await adapter.exec("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS daily_limit INTEGER DEFAULT 450;");
+      } catch (_) {}
+      try {
+        await adapter.exec("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS imap_host TEXT;");
+        await adapter.exec("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS imap_port INTEGER;");
+        await adapter.exec("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS imap_user TEXT;");
+        await adapter.exec("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS imap_pass TEXT;");
+        await adapter.exec("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS imap_secure INTEGER DEFAULT 1;");
       } catch (_) {}
       try {
         await adapter.exec("ALTER TABLE queue ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;");

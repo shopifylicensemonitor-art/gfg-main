@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Send, Users, Flame, Layout, Inbox,
   BarChart3, Settings, History, FileText, HelpCircle,
   Shield, Scale, Building2, Mail, ChevronLeft, ChevronRight, X,
-  Home, Zap, RefreshCw
+  Home, Zap, RefreshCw, Sparkles
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -20,9 +20,10 @@ const mainNavItems = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/campaigns', label: 'Campaigns', icon: RefreshCw },
   { path: '/contacts', label: 'Prospects', icon: Users },
+  { path: '/inbox', label: 'Inbox & Replies', icon: Inbox },
   { path: '/accounts', label: 'Warm-up', icon: Flame },
   { path: '/templates', label: 'Templates', icon: Layout },
-  { path: '/logs', label: 'Inbox', icon: Inbox },
+  { path: '/ai-settings', label: 'AI & SOP Rules', icon: Sparkles },
   { path: '/tracker', label: 'Reports', icon: BarChart3 },
 ];
 
