@@ -9,6 +9,7 @@
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
+  included_files = ["node_modules/sql.js/dist/sql-wasm.wasm", "gfg-main/node_modules/sql.js/dist/sql-wasm.wasm"]
 
 [[redirects]]
   from = "/api/*"

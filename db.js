@@ -197,7 +197,20 @@ function createSqliteAdapter() {
   }
 
   return (async () => {
-    const SQL = await initSqlJs();
+    const SQL = await initSqlJs({
+      locateFile: file => {
+        const candidatePaths = [
+          path.join(__dirname, file),
+          path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist', file),
+          path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', file),
+          path.join(process.cwd(), 'gfg-main', 'node_modules', 'sql.js', 'dist', file)
+        ];
+        for (const p of candidatePaths) {
+          if (fs.existsSync(p)) return p;
+        }
+        return file;
+      }
+    });
 
     if (fs.existsSync(DB_PATH)) {
       const fileBuffer = fs.readFileSync(DB_PATH);
