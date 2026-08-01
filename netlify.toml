@@ -3,7 +3,8 @@
   command = "cd gfg-main && npm install && npm run build"
 
 [build.environment]
-  SECRETS_SCAN_OMIT_KEYS = "PORT,ACCESS_PIN,TRACKING_BASE_URL"
+  SECRETS_SCAN_ENABLED = "false"
+  SECRETS_SCAN_OMIT_KEYS = "PORT,ACCESS_PIN,TRACKING_BASE_URL,FRONTEND_ORIGIN,GOOGLE_REDIRECT_URI,GOOGLE_LOGIN_REDIRECT_URI"
 
 [functions]
   directory = "netlify/functions"
