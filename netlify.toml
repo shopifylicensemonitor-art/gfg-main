@@ -1,7 +1,6 @@
 [build]
-  base = "gfg-main"
-  publish = "dist"
-  command = "cd .. && npm install --production && cd gfg-main && npm run build"
+  publish = "gfg-main/dist"
+  command = "cd gfg-main && npm install && npm run build"
 
 [functions]
   directory = "netlify/functions"
