@@ -23,6 +23,7 @@
     "nodemailer": "^6.9.13",
     "pg": "^8.21.0",
     "pino": "^10.3.1",
+    "serverless-http": "^4.0.0",
     "sql.js": "^1.10.3"
   },
   "devDependencies": {

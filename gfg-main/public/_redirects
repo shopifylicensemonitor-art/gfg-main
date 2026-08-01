@@ -1,4 +1,4 @@
-/api/*    https://mailflow-ndex.onrender.com/api/:splat    200
+/api/*    /.netlify/functions/api/:splat    200
 
 # Serve static files directly — these must come BEFORE the SPA catch-all
 /sitemap.xml      /sitemap.xml      200
