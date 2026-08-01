@@ -2,6 +2,9 @@
   publish = "gfg-main/dist"
   command = "cd gfg-main && npm install && npm run build"
 
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "PORT,ACCESS_PIN,TRACKING_BASE_URL"
+
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
