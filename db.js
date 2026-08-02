@@ -47,7 +47,12 @@ function createPgAdapter() {
   /** Append RETURNING id to INSERT statements so lastInsertRowid works */
   function appendReturning(sql) {
     const trimmed = sql.trim();
-    if (/^INSERT\s/i.test(trimmed) && !/RETURNING\s/i.test(trimmed)) {
+    // Do NOT append RETURNING id to tables that do not have an `id` column
+    if (
+      /^INSERT\s/i.test(trimmed) &&
+      !/RETURNING\s/i.test(trimmed) &&
+      !/INSERT\s+INTO\s+(campaign_recipients|settings|device_states)\b/i.test(trimmed)
+    ) {
       return trimmed.replace(/;?\s*$/, ' RETURNING id');
     }
     return sql;
@@ -85,7 +90,17 @@ function createPgAdapter() {
         },
         async run(...params) {
           const flat = flattenParams(params);
-          const result = await pool.query(pgSql, flat);
+          let result;
+          try {
+            result = await pool.query(pgSql, flat);
+          } catch (err) {
+            if (err.message && err.message.includes('column "id" does not exist')) {
+              const fallbackSql = pgSql.replace(/\s+RETURNING\s+id/gi, '');
+              result = await pool.query(fallbackSql, flat);
+            } else {
+              throw err;
+            }
+          }
           // Try to extract lastInsertRowid from RETURNING clause
           let lastId = 0;
           if (result.rows && result.rows[0] && result.rows[0].id) {
@@ -103,7 +118,6 @@ function createPgAdapter() {
           await client.query('BEGIN');
           // Replace pool with client for the duration of the transaction
           const txDb = { ...wrapped };
-          const origPrepare = wrapped.prepare.bind(wrapped);
           txDb.prepare = (sql) => {
             const pgSql = convertSql(sql);
             return {
@@ -119,7 +133,17 @@ function createPgAdapter() {
               },
               async run(...params) {
                 const flat = flattenParams(params);
-                const result = await client.query(pgSql, flat);
+                let result;
+                try {
+                  result = await client.query(pgSql, flat);
+                } catch (err) {
+                  if (err.message && err.message.includes('column "id" does not exist')) {
+                    const fallbackSql = pgSql.replace(/\s+RETURNING\s+id/gi, '');
+                    result = await client.query(fallbackSql, flat);
+                  } else {
+                    throw err;
+                  }
+                }
                 let lastId = 0;
                 if (result.rows && result.rows[0] && result.rows[0].id) {
                   lastId = result.rows[0].id;
