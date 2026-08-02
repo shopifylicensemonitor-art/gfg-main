@@ -4,6 +4,7 @@ import { Search, AlertCircle, CheckCircle2, XCircle, ChevronLeft, ChevronRight, 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { toast } from '@/hooks/use-toast';
 
 interface CSVPreviewProps {
   parsedCSV: ParsedCSV;
@@ -212,16 +213,28 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
             <tr className="border-b border-border/40 bg-muted/30">
               <th className="p-2.5 font-semibold text-muted-foreground w-12 text-center">Row</th>
               <th className="p-2.5 font-semibold text-muted-foreground w-48">Recipient Email</th>
-              {headers.map(h => (
-                <th key={h} className="p-2.5 font-semibold text-muted-foreground">
-                  {h}
-                  {mappings[h] && mappings[h] !== 'skip' && mappings[h] !== 'email' && (
-                    <span className="block text-[8px] text-primary font-mono lowercase font-normal mt-0.5">
-                      {`{{${mappings[h]}}}`}
+              {headers.map(h => {
+                const mappedTag = mappings[h] && mappings[h] !== 'skip' && mappings[h] !== 'email' ? `{{${mappings[h]}}}` : `{{${h}}}`;
+                return (
+                  <th
+                    key={h}
+                    onClick={() => {
+                      navigator.clipboard.writeText(mappedTag);
+                      toast({ title: 'Copied Variable', description: `Copied ${mappedTag} to clipboard!` });
+                    }}
+                    className="p-2.5 font-semibold text-muted-foreground cursor-pointer hover:text-primary transition-colors group"
+                    title={`Click to copy ${mappedTag}`}
+                  >
+                    <span className="flex items-center gap-1">
+                      {h}
+                      <span className="text-[9px] opacity-0 group-hover:opacity-100 text-primary">📋</span>
                     </span>
-                  )}
-                </th>
-              ))}
+                    <span className="block text-[8px] text-primary font-mono lowercase font-normal mt-0.5">
+                      {mappedTag}
+                    </span>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody className="divide-y divide-border/20">

@@ -4,6 +4,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { toast } from '@/hooks/use-toast';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -467,6 +468,8 @@ export function FastMailSend({
                 const before = text.substring(0, start);
                 const after = text.substring(end, text.length);
                 onBodyChange(before + item.tag + after);
+                navigator.clipboard.writeText(item.tag).catch(() => {});
+                toast({ title: 'Variable Inserted & Copied', description: `${item.tag} inserted at cursor and copied to clipboard.` });
                 setTimeout(() => {
                   textarea.focus();
                   textarea.setSelectionRange(start + item.tag.length, start + item.tag.length);
