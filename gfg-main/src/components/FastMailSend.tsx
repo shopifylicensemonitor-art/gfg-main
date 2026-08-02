@@ -435,13 +435,13 @@ export function FastMailSend({
       />
 
       {/* Mode Selector: Direct Text vs Saved Template */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-2.5 rounded-xl bg-muted/20 border border-border/50">
-        <div className="flex items-center gap-1.5 bg-background/50 p-1 rounded-lg border border-border/40">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 p-2.5 rounded-xl bg-muted/20 border border-border/50">
+        <div className="grid grid-cols-2 gap-1.5 bg-background/50 p-1 rounded-lg border border-border/40 w-full sm:w-auto">
           <Button
             type="button"
             variant={composerMode === 'direct' ? 'secondary' : 'ghost'}
             size="sm"
-            className="h-7 text-xs px-3 font-medium rounded-md"
+            className="h-9 text-xs px-2 sm:px-3 font-medium rounded-md justify-center"
             onClick={() => setComposerMode('direct')}
           >
             ✏️ Direct Custom Text
@@ -450,7 +450,7 @@ export function FastMailSend({
             type="button"
             variant={composerMode === 'template' ? 'secondary' : 'ghost'}
             size="sm"
-            className="h-7 text-xs px-3 font-medium rounded-md"
+            className="h-9 text-xs px-2 sm:px-3 font-medium rounded-md justify-center"
             onClick={async () => {
               setComposerMode('template');
               if (templates.length === 0) {
@@ -461,7 +461,7 @@ export function FastMailSend({
               }
             }}
           >
-            📋 Use Saved Template
+            📋 Saved Template
           </Button>
         </div>
 
