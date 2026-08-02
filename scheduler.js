@@ -100,43 +100,48 @@ function personalise(text, recipient, fieldsStr, accountDisplayName) {
   }
 
   // Get local part and domain part of email
-  const [localPart, domainPart] = recipient.split('@');
+  const [localPart, domainPart] = recipient ? recipient.split('@') : ['', ''];
   const pSname = domainPart ? domainPart.split('.')[0] : '';
-  const displayName = fields.first_name || fields.name || localPart;
+  const displayName = fields.first_name || fields.name || fields.firstName || localPart || '';
+  const storeName = fields.store_name || fields.store || fields.storeName || domainPart || '';
+  const brandName = accountDisplayName || fields.brand || '';
 
-  // 3. Replace legacy brackets: {name}, {store}, {sname}, {brand}
-  result = result
-    .replace(/\{name\}/g, displayName)
-    .replace(/\{store\}/g, fields.store_name || domainPart || '')
-    .replace(/\{sname\}/g, pSname)
-    .replace(/\{brand\}/g, accountDisplayName || '');
-
-  // 4. Fallback date replacement
   const now = new Date().toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
 
-  // 5. Run dynamic double curly brace {{variable}} replacements
-  result = result.replace(/\{\{(\w+)\}\}/gi, (match, key) => {
+  const resolveVar = (key) => {
     const normKey = key.trim().toLowerCase();
-    
-    // Check built-in or fallbacks
-    if (normKey === 'email') return recipient;
-    if (normKey === 'date') return now;
-    if (normKey === 'name') return displayName;
-    if (normKey === 'store' || normKey === 'store_name') return fields.store_name || domainPart || '';
-    if (normKey === 'sname') return pSname;
-    if (normKey === 'brand') return accountDisplayName || '';
 
-    // Check custom fields
-    if (fields && fields[normKey] !== undefined) {
-      return fields[normKey];
+    // Check built-in or fallbacks
+    if (normKey === 'email') return recipient || '';
+    if (normKey === 'date') return now;
+    if (normKey === 'name' || normKey === 'first_name' || normKey === 'firstname') return displayName;
+    if (normKey === 'store' || normKey === 'store_name' || normKey === 'storename') return storeName;
+    if (normKey === 'sname') return pSname;
+    if (normKey === 'brand') return brandName;
+
+    // Direct lookups in custom fields
+    if (fields && fields[normKey] !== undefined && fields[normKey] !== null) return String(fields[normKey]);
+    if (fields && fields[key] !== undefined && fields[key] !== null) return String(fields[key]);
+
+    // Case-insensitive fallback lookup
+    if (fields && typeof fields === 'object') {
+      const matchKey = Object.keys(fields).find(k => k.toLowerCase() === normKey);
+      if (matchKey && fields[matchKey] !== undefined && fields[matchKey] !== null) {
+        return String(fields[matchKey]);
+      }
     }
-    if (fields && fields[key] !== undefined) {
-      return fields[key];
-    }
+
+    // Return empty string to cleanly omit missing placeholder
     return '';
-  });
+  };
+
+  // 3. Dynamic double curly brace {{variable}} replacements
+  result = result.replace(/\{\{([^{}]+)\}\}/g, (_, key) => resolveVar(key));
+
+  // 4. Dynamic single curly brace {variable} replacements (excluding spintax containing pipe '|')
+  result = result.replace(/\{([a-zA-Z0-9_\-\s]+)\}/g, (_, key) => resolveVar(key));
 
   return result;
 }

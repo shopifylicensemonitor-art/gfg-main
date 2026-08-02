@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
+import { api } from '@/api';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -99,7 +100,7 @@ export function FastMailSend({
   onClear,
   onClearAllHistory,
   onValidate,
-  templates,
+  templates: propsTemplates = [],
   onSaveTemplate,
   onDeleteTemplate,
   onReplaceEmails,
@@ -142,6 +143,8 @@ export function FastMailSend({
   const [isTestDialogOpen, setIsTestDialogOpen] = useState(false);
   const [testRecipient, setTestRecipient] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [composerMode, setComposerMode] = useState<'direct' | 'template'>('direct');
+  const [templates, setTemplates] = useState<any[]>(propsTemplates || []);
 
 
   // Compute preview with replaced variables for test email
@@ -430,6 +433,60 @@ export function FastMailSend({
         onUpdateBody={onBodyChange}
         onUpdateSubject={onSubjectChange}
       />
+
+      {/* Mode Selector: Direct Text vs Saved Template */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-2.5 rounded-xl bg-muted/20 border border-border/50">
+        <div className="flex items-center gap-1.5 bg-background/50 p-1 rounded-lg border border-border/40">
+          <Button
+            type="button"
+            variant={composerMode === 'direct' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 text-xs px-3 font-medium rounded-md"
+            onClick={() => setComposerMode('direct')}
+          >
+            ✏️ Direct Custom Text
+          </Button>
+          <Button
+            type="button"
+            variant={composerMode === 'template' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 text-xs px-3 font-medium rounded-md"
+            onClick={async () => {
+              setComposerMode('template');
+              if (templates.length === 0) {
+                try {
+                  const list = await api.getTemplates();
+                  setTemplates(list || []);
+                } catch (_) {}
+              }
+            }}
+          >
+            📋 Use Saved Template
+          </Button>
+        </div>
+
+        {composerMode === 'template' && (
+          <select
+            onChange={(e) => {
+              const selectedId = e.target.value;
+              const found = templates.find(t => String(t.id) === selectedId);
+              if (found) {
+                onSubjectChange(found.subject || '');
+                onBodyChange(found.body_html || found.body_plain || '');
+                toast({ title: 'Template Loaded', description: `Loaded "${found.name}" template.` });
+              }
+            }}
+            className="h-8 text-xs rounded-lg border border-border bg-background px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary w-full sm:w-56"
+          >
+            <option value="">-- Select Template --</option>
+            {templates.map((tpl: any) => (
+              <option key={tpl.id} value={tpl.id}>
+                {tpl.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
 
       {/* Subject Line */}
       <div className="space-y-2">

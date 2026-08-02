@@ -18,6 +18,7 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'valid' | 'invalid'>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const itemsPerPage = 10;
 
   // 1. Identify which CSV column key maps to 'email'
@@ -208,10 +209,41 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
 
       {/* Main Table Preview */}
       <div className="rounded-xl border border-border/60 overflow-hidden bg-card/20 max-w-full overflow-x-auto scrollbar-thin">
+        <div className="bg-muted/20 px-3 py-1.5 border-b border-border/30 flex items-center justify-between text-[10px]">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={selectedIndices.size > 0 && selectedIndices.size === counts.valid}
+              onChange={toggleSelectAll}
+              className="rounded border-muted text-primary focus:ring-primary/20 cursor-pointer"
+            />
+            <span className="font-mono text-muted-foreground">
+              {selectedIndices.size > 0 ? `${selectedIndices.size} selected` : 'Select All Valid Emails'}
+            </span>
+          </div>
+          {selectedIndices.size > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedIndices(new Set())}
+              className="h-5 text-[9px] px-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+            >
+              Clear Selection
+            </Button>
+          )}
+        </div>
         <table className="w-full text-[11px] text-left border-collapse font-sans min-w-[600px]">
           <thead>
             <tr className="border-b border-border/40 bg-muted/30">
-              <th className="p-2.5 font-semibold text-muted-foreground w-12 text-center">Row</th>
+              <th className="p-2.5 font-semibold text-muted-foreground w-8 text-center">
+                <input
+                  type="checkbox"
+                  checked={selectedIndices.size > 0 && selectedIndices.size === counts.valid}
+                  onChange={toggleSelectAll}
+                  className="rounded border-muted text-primary focus:ring-primary/20 cursor-pointer"
+                />
+              </th>
+              <th className="p-2.5 font-semibold text-muted-foreground w-10 text-center">Row</th>
               <th className="p-2.5 font-semibold text-muted-foreground w-48">Recipient Email</th>
               {headers.map(h => {
                 const mappedTag = mappings[h] && mappings[h] !== 'skip' && mappings[h] !== 'email' ? `{{${mappings[h]}}}` : `{{${h}}}`;
@@ -239,11 +271,28 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
           </thead>
           <tbody className="divide-y divide-border/20">
             {paginatedRows.length > 0 ? (
-              paginatedRows.map(({ row, index, emailVal, isValidEmail, hasEmail }) => (
-                <tr key={index} className="hover:bg-muted/10 transition-colors">
-                  <td className="p-2.5 text-center text-muted-foreground/60 font-mono">
-                    {index}
-                  </td>
+              paginatedRows.map(({ row, index, emailVal, isValidEmail, hasEmail }) => {
+                const isSelected = selectedIndices.has(index);
+                return (
+                  <tr key={index} className={`hover:bg-muted/10 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
+                    <td className="p-2.5 text-center">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {
+                          setSelectedIndices(prev => {
+                            const next = new Set(prev);
+                            if (next.has(index)) next.delete(index);
+                            else next.add(index);
+                            return next;
+                          });
+                        }}
+                        className="rounded border-muted text-primary focus:ring-primary/20 cursor-pointer"
+                      />
+                    </td>
+                    <td className="p-2.5 text-center text-muted-foreground/60 font-mono">
+                      {index}
+                    </td>
                   <td className="p-2">
                     {hasEmail ? (
                       <div className="flex items-center gap-1.5">
@@ -281,8 +330,9 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
                     );
                   })}
                 </tr>
-              ))
-            ) : (
+              );
+            })
+          ) : (
               <tr>
                 <td colSpan={headers.length + 2} className="p-8 text-center text-muted-foreground italic text-xs">
                   No records match your filter criteria.
