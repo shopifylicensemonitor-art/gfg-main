@@ -5,7 +5,7 @@ import { SEO } from '@/components/SEO';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/hooks/use-toast';
-import { Users, Upload, Trash2, Plus, UserPlus, Search, ListFilter, AlertTriangle, FileSpreadsheet, Info } from 'lucide-react';
+import { Users, Upload, Trash2, Plus, UserPlus, Search, ListFilter, AlertTriangle, FileSpreadsheet, Info, History, Mail, MessageSquare, CheckCircle2, ShieldAlert, X } from 'lucide-react';
 
 interface ContactsProps {
   requirePin?: (label: string, action: () => void) => void;
@@ -29,6 +29,15 @@ export default function Contacts({ requirePin }: ContactsProps) {
 
   // Filter Query
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Contact History State
+  const [historyContact, setHistoryContact] = useState<Contact | null>(null);
+  const [historyData, setHistoryData] = useState<{
+    sends: any[];
+    logs: any[];
+    replies: any[];
+  } | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
   const loadLists = useCallback(async () => {
     setLoadingLists(true);
@@ -62,6 +71,23 @@ export default function Contacts({ requirePin }: ContactsProps) {
       });
     } finally {
       setLoadingContacts(false);
+    }
+  };
+
+  const handleOpenHistory = async (contact: Contact) => {
+    setHistoryContact(contact);
+    setLoadingHistory(true);
+    try {
+      const data = await api.getContactHistory(contact.email);
+      setHistoryData(data);
+    } catch (err: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error loading contact history',
+        description: err.message || 'Could not fetch history.'
+      });
+    } finally {
+      setLoadingHistory(false);
     }
   };
 
@@ -438,18 +464,36 @@ export default function Contacts({ requirePin }: ContactsProps) {
                   ) : (
                     filteredContacts.map((c, index) => (
                       <div key={c.id} className="px-4 py-2.5 flex items-center justify-between text-xs hover:bg-muted/5 font-medium transition-colors">
-                        <div className="flex items-center gap-2.5 truncate">
-                          <span className="text-[10px] text-muted-foreground font-mono w-6 text-right shrink-0">{index + 1}</span>
-                          <span className="text-foreground truncate">{c.email}</span>
-                        </div>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => handleDeleteSingle(c.id, c.email)}
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md"
+                        <div
+                          onClick={() => handleOpenHistory(c)}
+                          className="flex items-center gap-2.5 truncate cursor-pointer flex-1 group"
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                          <span className="text-[10px] text-muted-foreground font-mono w-6 text-right shrink-0">{index + 1}</span>
+                          <span className="text-foreground truncate group-hover:text-primary transition-colors">{c.email}</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                            View History
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => handleOpenHistory(c)}
+                            title="View sent email history & replies"
+                            className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-md"
+                          >
+                            <History className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => handleDeleteSingle(c.id, c.email)}
+                            title="Delete contact"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     ))
                   )}
@@ -460,6 +504,121 @@ export default function Contacts({ requirePin }: ContactsProps) {
 
         </div>
       </div>
+
+      {/* Contact History & Thread Dialog */}
+      {historyContact && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex justify-center z-50 overflow-y-auto p-4 sm:p-6 animate-in fade-in duration-200">
+          <div className="my-auto bg-card text-card-foreground border border-border shadow-2xl rounded-2xl p-6 max-w-2xl w-full animate-in zoom-in-95 duration-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-border/40 pb-3">
+              <div className="flex items-center gap-2">
+                <History className="h-5 w-5 text-primary" />
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Email Activity &amp; Reply History</h3>
+                  <p className="text-xs font-mono text-muted-foreground">{historyContact.email}</p>
+                </div>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => setHistoryContact(null)} className="h-7 w-7 p-0">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {loadingHistory ? (
+              <div className="py-12 text-center text-xs text-muted-foreground">
+                Loading history records for {historyContact.email}...
+              </div>
+            ) : !historyData ? (
+              <div className="py-12 text-center text-xs text-muted-foreground">
+                No activity history found.
+              </div>
+            ) : (
+              <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-1">
+                
+                {/* Sent Emails Queue */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Mail className="h-3.5 w-3.5 text-primary" />
+                    Sent &amp; Scheduled Emails ({historyData.sends.length})
+                  </h4>
+                  {historyData.sends.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic bg-muted/20 p-3 rounded-xl border border-border/40">
+                      No emails queued or sent to this contact yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {historyData.sends.map(s => (
+                        <div key={s.id} className="border border-border/60 bg-muted/10 rounded-xl p-3.5 space-y-2 text-xs">
+                          <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                            <span className="font-bold text-foreground">Campaign: {s.campaign_name || `#${s.campaign_id}`}</span>
+                            <span className={`px-2 py-0.5 rounded-full font-bold uppercase ${
+                              s.status === 'sent'
+                                ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                                : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                            }`}>
+                              {s.status}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-muted-foreground font-semibold uppercase block">Subject</span>
+                            <p className="font-bold text-foreground">{s.final_subject || 'No Subject'}</p>
+                          </div>
+                          {s.final_body && (
+                            <div>
+                              <span className="text-[10px] text-muted-foreground font-semibold uppercase block">Body Content</span>
+                              <div
+                                className="bg-background p-2.5 rounded-lg border border-border text-[11px] leading-relaxed max-h-32 overflow-y-auto text-foreground font-mono"
+                                dangerouslySetInnerHTML={{ __html: s.final_body }}
+                              />
+                            </div>
+                          )}
+                          <div className="text-[9px] text-muted-foreground/60 pt-1 flex justify-between">
+                            <span>Scheduled: {s.scheduled_at ? new Date(s.scheduled_at).toLocaleString() : 'N/A'}</span>
+                            {s.sent_at && <span>Sent: {new Date(s.sent_at).toLocaleString()}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Prospect Replies */}
+                <div className="space-y-2 pt-2 border-t border-border/40">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <MessageSquare className="h-3.5 w-3.5 text-emerald-500" />
+                    Prospect Replies ({historyData.replies.length})
+                  </h4>
+                  {historyData.replies.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic bg-muted/20 p-3 rounded-xl border border-border/40">
+                      No prospect replies received from this email address yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {historyData.replies.map(r => (
+                        <div key={r.id} className="border border-emerald-500/30 bg-emerald-500/5 rounded-xl p-3.5 space-y-2 text-xs">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="font-bold text-emerald-600">From: {r.sender_email}</span>
+                            <span className="text-muted-foreground">{new Date(r.created_at).toLocaleString()}</span>
+                          </div>
+                          <p className="font-bold text-foreground">{r.subject}</p>
+                          <p className="bg-background p-2.5 rounded-lg border border-border text-foreground leading-relaxed whitespace-pre-wrap">
+                            {r.body_text}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            )}
+
+            <div className="flex justify-end pt-3 border-t border-border">
+              <Button onClick={() => setHistoryContact(null)} className="text-xs font-semibold">
+                Close History
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

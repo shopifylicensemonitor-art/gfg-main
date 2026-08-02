@@ -337,6 +337,11 @@ export const api = {
 
   // Contacts
   getContactLists: () => apiFetch<ContactListInfo[]>('/api/contacts/lists'),
+  getContactHistory: (email: string) => apiFetch<{
+    sends: (QueueItem & { campaign_name?: string })[];
+    logs: LogItem[];
+    replies: { id: number; sender_email: string; recipient_email: string; subject: string; body_text: string; sentiment: string; created_at: string }[];
+  }>(`/api/contacts/history/${encodeURIComponent(email)}`),
   getContacts: (listName: string, limit?: number, offset?: number) => {
     const params = [];
     if (limit !== undefined) params.push(`limit=${limit}`);

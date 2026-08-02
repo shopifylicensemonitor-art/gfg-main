@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bell, Search, ChevronDown, User, Lock, Settings, Menu, ShieldAlert, CheckCircle2, Download } from 'lucide-react';
+import { Bell, Search, ChevronDown, User, Lock, Settings, Menu, ShieldAlert, CheckCircle2, Download, X, Copy, FileText, Check } from 'lucide-react';
 import { api, type LogItem } from '@/api';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { toast } from '@/hooks/use-toast';
@@ -14,6 +14,8 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [recentLogs, setRecentLogs] = useState<LogItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [selectedNotification, setSelectedNotification] = useState<LogItem | null>(null);
+  const [copiedLog, setCopiedLog] = useState(false);
 
   const [user, setUser] = useState<{ id: number; email: string; name: string; role: string; picture?: string } | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -177,7 +179,15 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
   };
 
   const handleClearNotifications = () => {
+    setRecentLogs([]);
     setUnreadCount(0);
+    toast({ title: 'Cleared', description: 'All notifications cleared.' });
+  };
+
+  const handleRemoveNotification = (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRecentLogs(prev => prev.filter(l => l.id !== id));
+    setUnreadCount(prev => Math.max(0, prev - 1));
   };
 
   return (
@@ -253,32 +263,48 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
                   </button>
                 )}
               </div>
-              <div className="max-h-64 overflow-y-auto py-1">
+              <div className="max-h-72 overflow-y-auto py-1">
                 {recentLogs.length === 0 ? (
                   <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-                    No recent events.
+                    No active notifications.
                   </div>
                 ) : (
                   recentLogs.map((log) => (
-                    <div key={log.id} className="flex gap-2.5 border-b border-border/40 px-3 py-2 text-left hover:bg-muted/30 transition-colors last:border-b-0">
-                      <div className="mt-0.5 shrink-0">
-                        {log.status === 'sent' ? (
-                          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                        ) : (
-                          <ShieldAlert className="h-4 w-4 text-rose-500" />
-                        )}
+                    <div
+                      key={log.id}
+                      onClick={() => {
+                        setSelectedNotification(log);
+                        setShowNotifications(false);
+                      }}
+                      className="group flex items-start justify-between gap-2 border-b border-border/40 px-3 py-2 text-left hover:bg-muted/50 cursor-pointer transition-colors last:border-b-0"
+                    >
+                      <div className="flex gap-2.5 min-w-0">
+                        <div className="mt-0.5 shrink-0">
+                          {log.status === 'sent' ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                          ) : (
+                            <ShieldAlert className="h-4 w-4 text-rose-500" />
+                          )}
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-[11px] font-medium text-foreground truncate">
+                            {log.recipient_email || 'System Log'}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground line-clamp-2">
+                            {log.message || (log.status === 'sent' ? 'Email sent successfully' : 'Delivery failed')}
+                          </span>
+                          <span className="text-[9px] text-muted-foreground/50 mt-0.5">
+                            {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-[11px] font-medium text-foreground truncate">
-                          {log.recipient_email || 'System'}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground line-clamp-2">
-                          {log.message || (log.status === 'sent' ? 'Email sent successfully' : 'Delivery failed')}
-                        </span>
-                        <span className="text-[9px] text-muted-foreground/50 mt-0.5">
-                          {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
+                      <button
+                        onClick={(e) => handleRemoveNotification(log.id, e)}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground/60 hover:text-foreground hover:bg-muted rounded-md transition-all shrink-0"
+                        title="Dismiss notification"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
                     </div>
                   ))
                 )}
@@ -352,10 +378,10 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
         </div>
       </div>
 
-      {/* Profile Settings Modal */}
+      {/* Profile Settings Modal — With Scrollable Container to prevent Top Cutoff */}
       {showProfileModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="bg-card text-card-foreground border border-border shadow-2xl rounded-2xl p-6 max-w-md w-full mx-4 animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex justify-center z-50 overflow-y-auto p-4 sm:p-6 animate-in fade-in duration-200">
+          <div className="my-auto bg-card text-card-foreground border border-border shadow-2xl rounded-2xl p-6 max-w-md w-full animate-in zoom-in-95 duration-200">
             <h3 className="text-lg font-bold tracking-tight mb-1">Admin Profile Settings</h3>
             <p className="text-xs text-muted-foreground mb-4">Update your administrative profile details.</p>
             
@@ -414,10 +440,10 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
         </div>
       )}
 
-      {/* System Settings Modal */}
+      {/* System Settings Modal — With Scrollable Container to prevent Top Cutoff */}
       {showSettingsModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="bg-card text-card-foreground border border-border shadow-2xl rounded-2xl p-6 max-w-md w-full mx-4 animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex justify-center z-50 overflow-y-auto p-4 sm:p-6 animate-in fade-in duration-200">
+          <div className="my-auto bg-card text-card-foreground border border-border shadow-2xl rounded-2xl p-6 max-w-md w-full animate-in zoom-in-95 duration-200">
             <h3 className="text-lg font-bold tracking-tight mb-1">System Control Panel</h3>
             <p className="text-xs text-muted-foreground mb-4">Configure system parameters and deployment settings.</p>
             <div className={`rounded-2xl border p-4 mb-4 ${schedulerEnabled === null ? 'bg-muted/30 border-border text-muted-foreground' : schedulerEnabled ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
@@ -500,6 +526,97 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Notification Detail Dialog Modal */}
+      {selectedNotification && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex justify-center z-50 overflow-y-auto p-4 sm:p-6 animate-in fade-in duration-200">
+          <div className="my-auto bg-card text-card-foreground border border-border shadow-2xl rounded-2xl p-6 max-w-lg w-full animate-in zoom-in-95 duration-200 space-y-4">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                {selectedNotification.status === 'sent' ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Sent Successfully
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-500 border border-rose-500/20">
+                    <ShieldAlert className="h-3.5 w-3.5" /> Issue / Failure
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => setSelectedNotification(null)}
+                className="h-7 w-7 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div>
+              <h3 className="text-base font-bold text-foreground">Notification Details</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Logged at {new Date(selectedNotification.created_at).toLocaleString()}
+              </p>
+            </div>
+
+            <div className="space-y-3 bg-muted/20 p-3.5 rounded-xl border border-border/50 text-xs">
+              <div>
+                <span className="font-semibold text-muted-foreground block text-[10px] uppercase tracking-wider">Recipient / Entity</span>
+                <span className="font-mono font-medium text-foreground">{selectedNotification.recipient_email || 'System Process'}</span>
+              </div>
+
+              <div>
+                <span className="font-semibold text-muted-foreground block text-[10px] uppercase tracking-wider">Message Content</span>
+                <p className="font-mono text-xs bg-background p-2.5 rounded-lg border border-border text-foreground leading-relaxed whitespace-pre-wrap break-words mt-1">
+                  {selectedNotification.message || (selectedNotification.status === 'sent' ? 'Email sent successfully via account pool.' : 'Delivery attempt failed.')}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
+                <div>
+                  <span className="text-muted-foreground">Log ID:</span> <span className="font-mono font-semibold">#{selectedNotification.id}</span>
+                </div>
+                {selectedNotification.campaign_id && (
+                  <div>
+                    <span className="text-muted-foreground">Campaign ID:</span> <span className="font-mono font-semibold">#{selectedNotification.campaign_id}</span>
+                  </div>
+                )}
+                {selectedNotification.account_id && (
+                  <div>
+                    <span className="text-muted-foreground">Account ID:</span> <span className="font-mono font-semibold">#{selectedNotification.account_id}</span>
+                  </div>
+                )}
+                {selectedNotification.queue_id && (
+                  <div>
+                    <span className="text-muted-foreground">Queue ID:</span> <span className="font-mono font-semibold">#{selectedNotification.queue_id}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-border">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(JSON.stringify(selectedNotification, null, 2));
+                  setCopiedLog(true);
+                  setTimeout(() => setCopiedLog(false), 2000);
+                  toast({ title: 'Copied', description: 'Log details copied to clipboard.' });
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl border border-input hover:bg-muted text-foreground transition"
+              >
+                {copiedLog ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                <span>{copiedLog ? 'Copied Details' : 'Copy Log JSON'}</span>
+              </button>
+
+              <button
+                onClick={() => setSelectedNotification(null)}
+                className="px-4 py-1.5 text-xs font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/95 transition"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

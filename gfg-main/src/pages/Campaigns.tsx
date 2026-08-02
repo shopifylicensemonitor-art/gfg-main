@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { toast } from '@/hooks/use-toast';
 import { 
   Send, Plus, Trash2, Play, Pause, FileText, Info,
-  Clock, Zap, CheckCircle2, ChevronRight, BarChart3, RotateCw 
+  Clock, Zap, CheckCircle2, ChevronRight, BarChart3, RotateCw, Pencil
 } from 'lucide-react';
 
 interface CampaignsProps {
@@ -34,6 +34,17 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
   const [previewItems, setPreviewItems] = useState<{ subject: string; body_html: string; recipient_email: string; sender_email: string | null }[]>([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
   const [loadingPreview, setLoadingPreview] = useState<boolean>(false);
+
+  // Edit State
+  const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+  const [editName, setEditName] = useState<string>('');
+  const [editSubject, setEditSubject] = useState<string>('');
+  const [editBodyHtml, setEditBodyHtml] = useState<string>('');
+  const [editBodyPlain, setEditBodyPlain] = useState<string>('');
+  const [editDelay, setEditDelay] = useState<number>(30);
+  const [editStartTime, setEditStartTime] = useState<string>('08:00');
+  const [editEndTime, setEditEndTime] = useState<string>('22:00');
+  const [savingEdit, setSavingEdit] = useState<boolean>(false);
 
   // Form State
   const [name, setName] = useState<string>('');
@@ -326,6 +337,48 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
       requirePin('resume campaign sends', action);
     } else {
       action();
+    }
+  };
+
+  const handleOpenEdit = (c: Campaign) => {
+    setEditingCampaign(c);
+    setEditName(c.name);
+    setEditSubject(c.subject);
+    setEditBodyHtml(c.body_html || '');
+    setEditBodyPlain(c.body_plain || '');
+    setEditDelay(c.delay_seconds || 30);
+    setEditStartTime(c.start_time || '08:00');
+    setEditEndTime(c.end_time || '22:00');
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCampaign) return;
+    setSavingEdit(true);
+    try {
+      await api.updateCampaign(editingCampaign.id, {
+        name: editName,
+        subject: editSubject,
+        body_html: editBodyHtml,
+        body_plain: editBodyPlain,
+        delay_seconds: editDelay,
+        start_time: editStartTime,
+        end_time: editEndTime,
+      });
+      toast({
+        title: 'Campaign updated',
+        description: `Successfully updated campaign "${editName}".`
+      });
+      setEditingCampaign(null);
+      loadData();
+    } catch (err: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Update failed',
+        description: err.message || 'Could not update campaign.'
+      });
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -816,6 +869,15 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                         <Button
                           size="sm"
                           variant="outline"
+                          onClick={() => handleOpenEdit(c)}
+                          className="h-8 gap-1 rounded-lg text-xs font-semibold hover:bg-primary/10 hover:text-primary border-primary/20"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          <span>Edit</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
                           onClick={() => handlePreview(c.id)}
                           disabled={loadingPreview}
                           className="h-8 gap-1 rounded-lg text-xs font-semibold"
@@ -888,6 +950,108 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Campaign Edit Modal */}
+      {editingCampaign && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex justify-center z-50 overflow-y-auto p-4 sm:p-6 animate-in fade-in duration-200">
+          <div className="my-auto bg-card text-card-foreground border border-border shadow-2xl rounded-2xl p-6 max-w-xl w-full animate-in zoom-in-95 duration-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-border/40 pb-3">
+              <div className="flex items-center gap-2">
+                <Pencil className="h-5 w-5 text-primary" />
+                <h3 className="text-base font-bold text-foreground">Edit Campaign #{editingCampaign.id}</h3>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => setEditingCampaign(null)} className="h-7 w-7 p-0">
+                ✕
+              </Button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">Campaign Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">Subject Line</label>
+                <input
+                  type="text"
+                  required
+                  value={editSubject}
+                  onChange={e => setEditSubject(e.target.value)}
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">Email HTML Body</label>
+                <textarea
+                  required
+                  rows={6}
+                  value={editBodyHtml}
+                  onChange={e => setEditBodyHtml(e.target.value)}
+                  className="w-full p-3 text-xs font-mono rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">Plain Text Fallback</label>
+                <textarea
+                  rows={3}
+                  value={editBodyPlain}
+                  onChange={e => setEditBodyPlain(e.target.value)}
+                  className="w-full p-3 text-xs rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">Delay (seconds)</label>
+                  <input
+                    type="number"
+                    min={5}
+                    value={editDelay}
+                    onChange={e => setEditDelay(Number(e.target.value))}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">Start Time</label>
+                  <input
+                    type="time"
+                    value={editStartTime}
+                    onChange={e => setEditStartTime(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">End Time</label>
+                  <input
+                    type="time"
+                    value={editEndTime}
+                    onChange={e => setEditEndTime(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-border">
+                <Button type="button" variant="outline" onClick={() => setEditingCampaign(null)} className="text-xs">
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={savingEdit} className="text-xs font-semibold">
+                  {savingEdit ? 'Saving Updates...' : 'Save Campaign Changes'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }
