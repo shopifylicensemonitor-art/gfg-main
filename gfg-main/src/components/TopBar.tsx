@@ -181,9 +181,9 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-border bg-background/60 px-6 backdrop-blur-md">
+    <header className="sticky top-0 z-30 flex h-14 lg:h-16 w-full items-center justify-between border-b border-border bg-background/60 px-3 sm:px-6 backdrop-blur-md">
       {/* Left side: Hamburger menu & Search */}
-      <div className="flex flex-1 items-center gap-4">
+      <div className="flex flex-1 items-center gap-3">
         <button
           onClick={onOpenSidebar}
           className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
@@ -191,6 +191,11 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
         >
           <Menu className="h-5 w-5" />
         </button>
+
+        {/* Mobile page title — visible only on small screens */}
+        <span className="text-sm font-bold text-foreground truncate sm:hidden">
+          Peak Xender
+        </span>
 
         <div className="relative w-full max-w-xs md:max-w-sm hidden sm:block">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />

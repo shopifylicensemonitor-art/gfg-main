@@ -376,3 +376,114 @@ html, body {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* ── Mobile Bottom Navigation Animations ──────────────────── */
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scale-in {
+  from {
+    transform: translateX(-50%) scaleX(0);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) scaleX(1);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* ── Mobile-First Optimizations ──────────────────────────── */
+
+@media (max-width: 1023px) {
+  /* Smooth momentum scrolling */
+  html {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+
+  /* Prevent text selection on interactive elements */
+  button, a, nav {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Larger touch targets on mobile (min 44px) */
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Except inline text links and tiny badge links */
+  a.inline-link,
+  span > a,
+  p > a,
+  .text-\[9px\] a,
+  .text-\[10px\] a,
+  nav a {
+    min-height: unset;
+    min-width: unset;
+  }
+
+  /* Mobile card spacing — tighter padding, full-bleed */
+  .glass-glow-card {
+    border-radius: 12px;
+  }
+
+  /* Disable hover transforms on touch devices */
+  .glass-glow-card:hover {
+    transform: none;
+  }
+
+  /* Mobile-friendly inputs */
+  input, textarea, select {
+    font-size: 16px !important; /* Prevents iOS zoom on focus */
+  }
+
+  /* Compact stat cards in 2-column grid */
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+}
+
+/* ── Mobile Typography Enhancements ──────────────────────── */
+
+@media (max-width: 640px) {
+  /* Slightly larger body text for readability */
+  body {
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  /* Page headings */
+  h1 {
+    font-size: 1.5rem !important;
+  }
+
+  h2 {
+    font-size: 1.25rem !important;
+  }
+
+  /* Full-width buttons on small screens */
+  .mobile-full-width {
+    width: 100% !important;
+  }
+}

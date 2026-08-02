@@ -1,6 +1,7 @@
 import { useState, ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { MobileBottomNav } from './MobileBottomNav';
 
 interface AppShellProps {
   children: ReactNode;
@@ -29,11 +30,15 @@ export function AppShell({ children }: AppShellProps) {
         {/* TopBar */}
         <TopBar onOpenSidebar={() => setIsMobileSidebarOpen(true)} />
 
-        {/* Content Area */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto px-3 sm:px-6 py-4 sm:py-6 max-w-5xl w-full mx-auto animate-fade-in pb-16">
+        {/* Content Area — pb-20 on mobile for bottom nav clearance */}
+        <main className="flex-1 overflow-x-hidden overflow-y-auto px-3 sm:px-6 py-4 sm:py-6 max-w-5xl w-full mx-auto animate-fade-in pb-20 lg:pb-6">
           {children}
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation */}
+      <MobileBottomNav />
     </div>
   );
 }
+
