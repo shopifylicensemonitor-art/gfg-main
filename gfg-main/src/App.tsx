@@ -4,6 +4,7 @@ import { BrowserRouter, HashRouter, Routes, Route, Navigate } from "react-router
 import { lazy, Suspense, useEffect, useState, useCallback } from "react";
 import Landing from "./pages/Landing";
 import { initCapacitor, isNativePlatform } from "./lib/capacitor";
+import { navigateToRoute } from "./lib/router";
 import clarity from "@microsoft/clarity";
 
 // Lazy-load non-critical routes for faster initial load
@@ -74,8 +75,9 @@ const App = () => {
     const token = params.get("token");
     if (token) {
       localStorage.setItem("auth_token", token);
-      // Clean the URL
-      window.history.replaceState({}, "", window.location.pathname);
+      const cleanUrl = `${window.location.pathname}${window.location.hash}`;
+      window.history.replaceState({}, "", cleanUrl);
+      navigateToRoute(window.location.pathname + window.location.hash, { replace: true });
     }
   }, []);
 

@@ -174,13 +174,15 @@ export interface InboxMessage {
 // Base Fetch Wrapper
 // ---------------------------------------------------------------------------
 
+import { navigateToRoute } from './lib/router';
+
 /** Clear expired token and redirect to login page */
 function handleAuthError() {
   localStorage.removeItem('auth_token');
   // Only redirect if not already on login or landing page
   const path = window.location.pathname;
   if (path !== '/login' && path !== '/') {
-    window.location.href = '/login';
+    navigateToRoute('/login', { replace: true });
   }
 }
 

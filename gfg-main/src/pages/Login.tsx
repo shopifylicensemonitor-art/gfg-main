@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { navigateToRoute } from "../lib/router";
 
 const getApiBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
@@ -31,8 +32,8 @@ const Login = () => {
     const authError = params.get("auth_error");
     if (authError === "unauthorized") {
       setError("Access denied. Your email is not authorized as admin.");
-      // Clean URL
-      window.history.replaceState({}, "", "/login");
+      // Clean URL without breaking the router state
+      navigateToRoute("/login", { replace: true });
     }
   }, [navigate]);
 

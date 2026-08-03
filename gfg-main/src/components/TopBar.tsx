@@ -3,6 +3,7 @@ import { Bell, Search, ChevronDown, User, Lock, Settings, Menu, ShieldAlert, Che
 import { api, type LogItem } from '@/api';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { toast } from '@/hooks/use-toast';
+import { navigateToRoute } from '@/lib/router';
 
 interface TopBarProps {
   onOpenSidebar: () => void;
@@ -175,7 +176,7 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
 
   const handleSignOut = () => {
     localStorage.removeItem('auth_token');
-    window.location.href = '/login';
+    navigateToRoute('/login', { replace: true });
   };
 
   const handleClearNotifications = () => {
