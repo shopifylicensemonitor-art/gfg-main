@@ -1089,15 +1089,23 @@ const Index = () => {
       // Optionally auto-launch the campaign
       try {
         const launchRes = await api.launchCampaign(res.campaign_id);
-        toast({
-          title: "Campaign Launched",
-          description: launchRes.message || `Campaign #${res.campaign_id} is now sending. Queue items have been populated.`,
-        });
+        if (launchRes && launchRes.processing_started === false) {
+          toast({
+            variant: 'destructive',
+            title: 'Launched — processing failed',
+            description: launchRes.processing_error || launchRes.message || `Campaign #${res.campaign_id} queued but processing failed. Launch manually from Campaigns page.`
+          });
+        } else {
+          toast({
+            title: 'Campaign Launched',
+            description: launchRes.message || `Campaign #${res.campaign_id} is now sending. Queue items have been populated.`,
+          });
+        }
       } catch (launchErr: any) {
         toast({
-          title: "Campaign Saved as Draft",
+          title: 'Campaign Saved as Draft',
           description: `Campaign #${res.campaign_id} was created but auto-launch failed: ${launchErr.message}. Launch it manually from Campaigns page.`,
-          variant: "destructive"
+          variant: 'destructive'
         });
       }
     } catch (err: any) {

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { suggestFieldMapping, extractEmailsAndUrlsFromCell, type ParsedCSV } from '@/lib/csvParser';
 import { Search, AlertCircle, CheckCircle2, XCircle, ChevronLeft, ChevronRight, FileSpreadsheet, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -33,17 +33,17 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
     return found || headers[0] || '';
   }, [headers, mappings]);
 
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const emailRegex = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/, []);
 
   // Helper to validate email cell content
-  const validateEmailInRow = (row: Record<string, string>) => {
+  const validateEmailInRow = useCallback((row: Record<string, string>) => {
     const rawVal = row[emailColKey]?.trim() || '';
     if (!rawVal) return { isValid: false, emailStr: '' };
     const { emails } = extractEmailsAndUrlsFromCell(rawVal);
     if (emails.length === 0) return { isValid: false, emailStr: rawVal };
     const isValid = emailRegex.test(emails[0]);
     return { isValid, emailStr: emails[0] };
-  };
+  }, [emailColKey, emailRegex]);
 
   // 2. Classify rows based on email presence/validity
   const rowsWithStats = useMemo(() => {
@@ -57,7 +57,7 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
         hasEmail: emailStr !== ''
       };
     });
-  }, [rows, emailColKey]);
+  }, [rows, emailColKey, validateEmailInRow]);
 
   // Compute counts for the segmented tab badges
   const counts = useMemo(() => {
@@ -91,6 +91,18 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
 
     return result;
   }, [rowsWithStats, statusFilter, searchQuery]);
+
+  const validRows = useMemo(() => rowsWithStats.filter(r => r.isValidEmail), [rowsWithStats]);
+
+  const toggleSelectAll = () => {
+    const validIndexes = validRows.map(r => r.index);
+    const allSelected = validIndexes.every(idx => selectedIndices.has(idx));
+    if (allSelected) {
+      setSelectedIndices(new Set());
+    } else {
+      setSelectedIndices(new Set(validIndexes));
+    }
+  };
 
   // 4. Pagination
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));

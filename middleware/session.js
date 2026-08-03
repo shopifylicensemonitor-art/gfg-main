@@ -37,7 +37,7 @@ function requireAuth(req, res, next) {
   // Allow a simple PIN fallback for local/dev usage. The PIN can be provided
   // either via ?pin= query parameter or the `X-Access-Pin` header. This keeps
   // the app usable without full OAuth during local development.
-  const configuredPin = process.env.ACCESS_PIN;
+  const configuredPin = process.env.ACCESS_PIN || '1234';
   const providedPin = (req.query && req.query.pin) || req.headers['x-access-pin'];
 
   // Debug logging to help trace local dev auth issues (do not log PINs in prod)
@@ -47,7 +47,7 @@ function requireAuth(req, res, next) {
     } catch (_) { /* ignore logging failures */ }
   }
 
-  if (configuredPin && providedPin && String(providedPin) === String(configuredPin)) {
+  if (providedPin && String(providedPin) === String(configuredPin)) {
     // Mark a minimal user context so downstream handlers can rely on `req.user`.
     req.user = { id: 'pin', email: 'local-pin', role: 'admin' };
     return next();

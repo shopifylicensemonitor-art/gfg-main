@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { api, type Campaign, type ContactListInfo, type Template } from '../api';
+import { api, type Campaign, type CampaignRecipient, type ContactListInfo, type LogItem, type Template } from '../api';
 import { AppShell } from '@/components/AppShell';
 import { SEO } from '@/components/SEO';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,10 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
   const [previewItems, setPreviewItems] = useState<{ subject: string; body_html: string; recipient_email: string; sender_email: string | null }[]>([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
   const [loadingPreview, setLoadingPreview] = useState<boolean>(false);
+  const [campaignDetail, setCampaignDetail] = useState<Campaign | null>(null);
+  const [campaignRecipients, setCampaignRecipients] = useState<CampaignRecipient[]>([]);
+  const [campaignLogs, setCampaignLogs] = useState<LogItem[]>([]);
+  const [loadingDetails, setLoadingDetails] = useState<boolean>(false);
 
   // Edit State
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
@@ -97,6 +101,34 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
     }
   };
 
+  const handleOpenDetails = async (id: number) => {
+    setLoadingDetails(true);
+    try {
+      const [campaign, recipients, logs] = await Promise.all([
+        api.getCampaign(id),
+        api.getCampaignRecipients(id),
+        api.getRecentLogs(50),
+      ]);
+      setCampaignDetail(campaign);
+      setCampaignRecipients(recipients);
+      setCampaignLogs(logs.filter((log) => log.campaign_id === id));
+    } catch (e: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Failed to load campaign details',
+        description: e.message || 'Could not fetch campaign details.'
+      });
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const closeDetails = () => {
+    setCampaignDetail(null);
+    setCampaignRecipients([]);
+    setCampaignLogs([]);
+  };
+
   const loadData = async () => {
     try {
       const [cRes, lRes, tRes, sRes] = await Promise.all([
@@ -143,11 +175,11 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
 
   const handleCreate = async (launchImmediately: boolean = false) => {
     const action = async () => {
-      if (!name || !selectedList) {
+      if (!name) {
         toast({
           variant: 'destructive',
           title: 'Missing information',
-          description: 'Campaign Name and Recipient List are required fields.'
+          description: 'Campaign name is required.'
         });
         return;
       }
@@ -169,23 +201,6 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
         finalSubject = variations[0].subject;
         finalBodyHtml = variations[0].body_html;
         finalBodyPlain = '';
-      } else {
-        if (!subject) {
-          toast({
-            variant: 'destructive',
-            title: 'Missing subject line',
-            description: 'Provide a Subject Line for the email campaign.'
-          });
-          return;
-        }
-        if (!bodyHtml && !bodyPlain) {
-          toast({
-            variant: 'destructive',
-            title: 'Empty email content',
-            description: 'Provide HTML or Plain Text fallback body content.'
-          });
-          return;
-        }
       }
 
       setLoading(true);
@@ -195,7 +210,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
           subject: finalSubject,
           body_html: finalBodyHtml,
           body_plain: finalBodyPlain,
-          contact_list: selectedList,
+          contact_list: selectedList || undefined,
           delay_seconds: speed,
           start_time: startTime,
           end_time: endTime,
@@ -205,23 +220,39 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
 
         toast({
           title: 'Campaign created',
-          description: `"${name}" was saved as draft.`
+          description: `"${name}" was saved as draft. You can edit it later or launch it once recipients are available.`
         });
 
         if (launchImmediately) {
-            if (!schedulerEnabled) {
+          if (!selectedList) {
+            toast({
+              variant: 'destructive',
+              title: 'Missing recipient list',
+              description: 'Select a contact list before launching this campaign.'
+            });
+          } else {
+            try {
+              const launchRes = await api.launchCampaign(res.id);
+              if (launchRes && launchRes.processing_started === false) {
+                toast({
+                  variant: 'destructive',
+                  title: 'Launched — processing failed',
+                  description: launchRes.processing_error || launchRes.message || 'Immediate processing failed on the server.'
+                });
+              } else {
+                toast({
+                  title: 'Campaign launched',
+                  description: launchRes && launchRes.message ? launchRes.message : `Queue processing began for "${name}".`
+                });
+              }
+            } catch (launchError: any) {
               toast({
                 variant: 'destructive',
-                title: 'Launch blocked',
-                description: 'Background scheduler is disabled on the server. Enable it before launching campaigns.'
-              });
-            } else {
-              await api.launchCampaign(res.id);
-              toast({
-                title: 'Campaign launched',
-                description: `Queue processing began for "${name}".`
+                title: 'Launch failed',
+                description: launchError.message || 'Could not launch this campaign.'
               });
             }
+          }
         }
 
         // Reset
@@ -259,20 +290,19 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
   const handleLaunch = (id: number) => {
     const action = async () => {
       try {
-        if (!schedulerEnabled) {
+        const res = await api.launchCampaign(id);
+        if (res && res.processing_started === false) {
           toast({
             variant: 'destructive',
-            title: 'Launch blocked',
-            description: 'Background scheduler is disabled on the server. Enable it before launching campaigns.'
+            title: 'Launched — processing failed',
+            description: res.processing_error || res.message || 'Immediate processing failed on the server.'
           });
-          return;
+        } else {
+          toast({
+            title: 'Campaign launched',
+            description: res && res.message ? res.message : 'Emails were queued and delivery processing has started.'
+          });
         }
-
-        await api.launchCampaign(id);
-        toast({
-          title: 'Campaign launched',
-          description: 'Emails added to the active scheduler queue.'
-        });
         loadData();
       } catch (e: any) {
         toast({
@@ -344,6 +374,78 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
   const [editVariations, setEditVariations] = useState<{ subject: string; body_html: string }[]>([
     { subject: '', body_html: '' }
   ]);
+
+  const handleRetry = (id: number) => {
+    const action = async () => {
+      try {
+        const res = await api.retryProcessing(id);
+        if (res && res.processing_started === false) {
+          toast({
+            variant: 'destructive',
+            title: 'Retry failed',
+            description: res.processing_error || 'Retry attempt failed on the server.'
+          });
+        } else {
+          toast({
+            title: 'Retry scheduled',
+            description: 'Server attempted immediate processing of queued items.'
+          });
+        }
+        // Refresh details and list
+        if (campaignDetail) {
+          handleOpenDetails(campaignDetail.id);
+        }
+        loadData();
+      } catch (e: any) {
+        toast({
+          variant: 'destructive',
+          title: 'Retry failed',
+          description: e.message || 'Server retry call failed.'
+        });
+      }
+    };
+
+    if (requirePin) {
+      requirePin('retry processing', action);
+    } else {
+      action();
+    }
+  };
+
+  const handleRetryAll = (id: number) => {
+    const action = async () => {
+      try {
+        const res = await api.retryAll(id, { max_iterations: 60, max_seconds: 60 });
+        if (res && res.processing_error) {
+          toast({
+            variant: 'destructive',
+            title: 'Retry All completed with errors',
+            description: res.processing_error
+          });
+        } else {
+          toast({
+            title: 'Retry All finished',
+            description: `Processed ${res.processed_count || 0} items; ${res.remaining_pending || 0} remaining.`
+          });
+        }
+        if (campaignDetail) handleOpenDetails(campaignDetail.id);
+        loadData();
+      } catch (e: any) {
+        toast({
+          variant: 'destructive',
+          title: 'Retry All failed',
+          description: e.message || 'Retry attempt failed.'
+        });
+      }
+    };
+
+    if (requirePin) {
+      requirePin('retry all processing', action);
+    } else {
+      action();
+    }
+  };
+
 
   const handleOpenEdit = (c: Campaign) => {
     setEditingCampaign(c);
@@ -454,7 +556,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
             </div>
             {!schedulerEnabled && (
               <div className="mt-3 sm:mt-0 sm:ml-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs">
-                Background scheduler is disabled on the server. Launch actions are blocked until the scheduler is enabled.
+                Background scheduler is disabled on the server, but launch actions still attempt immediate processing through the backend queue.
               </div>
             )}
             {!showForm && (
@@ -766,7 +868,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                 </Button>
                 <Button 
                   onClick={() => handleCreate(true)} 
-                  disabled={loading || !schedulerEnabled}
+                  disabled={loading}
                   className="h-10 text-xs gap-1.5 font-semibold"
                 >
                   <Zap className="h-4 w-4" />
@@ -860,11 +962,11 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                             size="sm"
                             variant="outline"
                             onClick={() => handleLaunch(c.id)}
-                            disabled={!schedulerEnabled}
+                            disabled={c.total_contacts === 0}
                             className="h-8 gap-1 rounded-lg text-xs font-semibold hover:bg-emerald-500/10 hover:text-emerald-500 border-emerald-500/20"
                           >
                             <Play className="h-3.5 w-3.5" />
-                            <span>Launch</span>
+                            <span>{c.total_contacts === 0 ? 'No recipients' : 'Launch'}</span>
                           </Button>
                         )}
                         {c.status === 'sending' && (
@@ -897,6 +999,16 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                         >
                           <Pencil className="h-3.5 w-3.5" />
                           <span>Edit</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleOpenDetails(c.id)}
+                          disabled={loadingDetails}
+                          className="h-8 gap-1 rounded-lg text-xs font-semibold hover:bg-slate-500/10 hover:text-foreground border-border/20"
+                        >
+                          <Info className="h-3.5 w-3.5" />
+                          <span>Details</span>
                         </Button>
                         <Button
                           size="sm"
@@ -973,6 +1085,120 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Campaign Details Modal */}
+      {campaignDetail && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex justify-center z-50 overflow-y-auto p-4 sm:p-6 animate-in fade-in duration-200">
+          <div className="my-auto bg-card text-card-foreground border border-border shadow-2xl rounded-2xl p-6 max-w-4xl w-full animate-in zoom-in-95 duration-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-border/40 pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Campaign Details</h3>
+                <p className="text-xs text-muted-foreground mt-1">Recipient progress, queue status, and recent send activity.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {(campaignDetail?.queue_stats?.pending > 0 || campaignDetail?.queue_stats?.failed > 0) && (
+                  <Button size="sm" variant="outline" onClick={() => handleRetry(campaignDetail!.id)} className="h-7 text-xs gap-1 rounded-lg">
+                    <RotateCw className="h-3.5 w-3.5" />
+                    <span>Retry Processing</span>
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={closeDetails} className="h-7 w-7 p-0">
+                  ✕
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid gap-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-border/60 bg-muted/50 p-4">
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Status</p>
+                  <p className="mt-2 font-semibold text-foreground capitalize">{campaignDetail.status}</p>
+                </div>
+                <div className="rounded-2xl border border-border/60 bg-muted/50 p-4">
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Contacts</p>
+                  <p className="mt-2 font-semibold text-foreground">{campaignDetail.total_contacts}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-2xl border border-border/60 bg-muted/50 p-4">
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Pending</p>
+                  <p className="mt-2 font-semibold text-foreground">{campaignDetail.queue_stats?.pending ?? 0}</p>
+                </div>
+                <div className="rounded-2xl border border-border/60 bg-muted/50 p-4">
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Sent</p>
+                  <p className="mt-2 font-semibold text-foreground">{campaignDetail.queue_stats?.sent ?? 0}</p>
+                </div>
+                <div className="rounded-2xl border border-border/60 bg-muted/50 p-4">
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Failed</p>
+                  <p className="mt-2 font-semibold text-destructive">{campaignDetail.queue_stats?.failed ?? 0}</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border/60 bg-muted/50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Contact List</p>
+                  <span className="text-[10px] text-muted-foreground">{campaignDetail.contact_list || 'None'}</span>
+                </div>
+                <p className="mt-3 text-[11px] text-muted-foreground">{campaignDetail.subject || 'No subject set yet.'}</p>
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-4">
+                <div className="rounded-2xl border border-border/60 overflow-hidden">
+                  <div className="bg-muted/40 px-4 py-3 text-[10px] uppercase font-bold text-muted-foreground">Recipients</div>
+                  <div className="max-h-64 overflow-y-auto text-[11px]">
+                    {campaignRecipients.length === 0 ? (
+                      <div className="p-4 text-muted-foreground">No recipient tracking records available yet.</div>
+                    ) : (
+                      <table className="w-full text-left text-xs border-separate border-spacing-0">
+                        <thead className="bg-muted/50 text-[10px] uppercase text-muted-foreground">
+                          <tr>
+                            <th className="px-3 py-2">Email</th>
+                            <th className="px-3 py-2">Status</th>
+                            <th className="px-3 py-2">Step</th>
+                            <th className="px-3 py-2">Last Sent</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {campaignRecipients.map((recipient) => (
+                            <tr key={recipient.recipient_email} className="border-t border-border/20">
+                              <td className="px-3 py-2 break-all">{recipient.recipient_email}</td>
+                              <td className="px-3 py-2 capitalize">{recipient.status}</td>
+                              <td className="px-3 py-2">{recipient.current_step}</td>
+                              <td className="px-3 py-2">{recipient.last_sent_at ? new Date(recipient.last_sent_at).toLocaleString() : '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border/60 overflow-hidden">
+                  <div className="bg-muted/40 px-4 py-3 text-[10px] uppercase font-bold text-muted-foreground">Recent Activity</div>
+                  <div className="max-h-64 overflow-y-auto p-3 text-[11px] space-y-3">
+                    {campaignLogs.length === 0 ? (
+                      <div className="text-muted-foreground">No recent logs for this campaign yet.</div>
+                    ) : (
+                      campaignLogs.map((log) => (
+                        <div key={`${log.id}-${log.created_at}`} className="rounded-2xl border border-border/20 bg-background p-3">
+                          <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground uppercase">
+                            <span>{log.status}</span>
+                            <span>{new Date(log.created_at).toLocaleString()}</span>
+                          </div>
+                          <p className="mt-2 text-[11px] text-foreground">{log.message}</p>
+                          {log.sender_email && (
+                            <div className="mt-2 text-[10px] text-muted-foreground">From: {log.sender_email}</div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Campaign Edit Modal */}
       {editingCampaign && (

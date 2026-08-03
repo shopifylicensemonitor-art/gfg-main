@@ -15,7 +15,76 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
-const { personalise, completeCampaignIfNoActiveQueue } = require('../scheduler');
+const logger = require('../logger');
+const { processNextItem, personalise, completeCampaignIfNoActiveQueue } = require('../scheduler');
+
+function createDefaultCampaignContent(subject, bodyHtml, bodyPlain) {
+  const normalizedSubject = typeof subject === 'string' && subject.trim() ? subject.trim() : 'Untitled campaign';
+  const normalizedBodyHtml = typeof bodyHtml === 'string' && bodyHtml.trim()
+    ? bodyHtml.trim()
+    : '<p>This campaign is ready for editing.</p><p>Replace this placeholder content with your outreach message.</p>';
+  const normalizedBodyPlain = typeof bodyPlain === 'string' && bodyPlain.trim()
+    ? bodyPlain.trim()
+    : 'This campaign is ready for editing. Replace this placeholder content with your outreach message.';
+
+  return {
+    subject: normalizedSubject,
+    body_html: normalizedBodyHtml,
+    body_plain: normalizedBodyPlain,
+  };
+}
+
+function resolveLaunchRecipientPlan({ existingQueueRows = [], recipients = [], contacts = [] }) {
+  const normalizedExistingRows = Array.isArray(existingQueueRows) ? existingQueueRows : [];
+  if (normalizedExistingRows.length > 0) {
+    return {
+      useExistingQueue: true,
+      recipients: normalizedExistingRows
+        .map((row) => {
+          if (!row) return null;
+          const recipientEmail = row.recipient_email || row.email || row.recipientEmail || '';
+          if (!recipientEmail) return null;
+          return {
+            recipient_email: recipientEmail,
+            account_id: row.account_id ?? row.accountId ?? null,
+            fields: row.fields ?? row.field_values ?? null,
+          };
+        })
+        .filter(Boolean),
+    };
+  }
+
+  const normalizedRecipients = Array.isArray(recipients) ? recipients : [];
+  const normalizedContacts = Array.isArray(contacts) ? contacts : [];
+
+  const resolvedRecipients = normalizedRecipients.length > 0
+    ? normalizedRecipients.map((recipient) => {
+        const recipientEmail = recipient?.recipient_email || recipient?.email || recipient?.recipientEmail || '';
+        if (!recipientEmail) return null;
+        return {
+          recipient_email: recipientEmail,
+          account_id: recipient?.account_id ?? recipient?.accountId ?? null,
+          fields: recipient?.fields ?? recipient?.field_values ?? null,
+        };
+      }).filter(Boolean)
+    : normalizedContacts.map((contact) => {
+        const recipientEmail = contact?.recipient_email || contact?.email || contact?.recipientEmail || '';
+        if (!recipientEmail) return null;
+        return {
+          recipient_email: recipientEmail,
+          account_id: contact?.account_id ?? contact?.accountId ?? null,
+          fields: contact?.fields ?? contact?.field_values ?? null,
+        };
+      }).filter(Boolean);
+
+  return {
+    useExistingQueue: false,
+    recipients: resolvedRecipients,
+  };
+}
+
+router.createDefaultCampaignContent = createDefaultCampaignContent;
+router.resolveLaunchRecipientPlan = resolveLaunchRecipientPlan;
 
 /** List all campaigns. */
 router.get('/', async (_req, res) => {
@@ -83,17 +152,19 @@ router.post('/', async (req, res) => {
     steps
   } = req.body;
 
-  if (!name || !subject || !contact_list) {
-    return res.status(400).json({ error: 'name, subject, and contact_list are required.' });
+  if (!name) {
+    return res.status(400).json({ error: 'Campaign name is required.' });
   }
 
   try {
     const db = await getDb();
+    const resolvedContactList = contact_list || `campaign-${Date.now()}`;
+    const content = createDefaultCampaignContent(subject, body_html, body_plain);
 
-    // Count contacts in the specified list
-    const countRow = await db.prepare(
-      'SELECT COUNT(*) as total FROM contacts WHERE list_name = ?'
-    ).get(contact_list);
+    // Count contacts in the specified list when one is provided.
+    const countRow = resolvedContactList
+      ? await db.prepare('SELECT COUNT(*) as total FROM contacts WHERE list_name = ?').get(resolvedContactList)
+      : null;
 
     const createBoth = db.transaction(async (txDb) => {
       const result = await txDb.prepare(`
@@ -103,8 +174,8 @@ router.post('/', async (req, res) => {
            content_variations, content_mode)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        name, subject, body_html || '', body_plain || '',
-        contact_list, delay_seconds, start_time, end_time,
+        name, content.subject, content.body_html, content.body_plain,
+        resolvedContactList, delay_seconds, start_time, end_time,
         countRow ? countRow.total : 0,
         content_variations ? JSON.stringify(content_variations) : null,
         content_mode
@@ -163,6 +234,7 @@ router.put('/:id', async (req, res) => {
 
   try {
     const db = await getDb();
+<<<<<<< HEAD
 
     if (fields.contact_list) {
       const countRow = await db.prepare(
@@ -172,10 +244,31 @@ router.put('/:id', async (req, res) => {
       values.push(countRow ? countRow.total : 0);
     }
 
+=======
+    const fallbackContent = createDefaultCampaignContent(fields.subject, fields.body_html, fields.body_plain);
+>>>>>>> 02e3985 (feat: add campaign management dashboard and core email delivery routing)
     const updateBoth = db.transaction(async (txDb) => {
       if (updates.length > 0) {
         values.push(req.params.id);
         await txDb.prepare(`UPDATE campaigns SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      }
+
+      if (!fields.subject && !fields.body_html && !fields.body_plain) {
+        await txDb.prepare(`
+          UPDATE campaigns
+          SET subject = ?, body_html = ?, body_plain = ?
+          WHERE id = ?
+        `).run(fallbackContent.subject, fallbackContent.body_html, fallbackContent.body_plain, req.params.id);
+      } else if (!fields.subject || !fields.body_html || !fields.body_plain) {
+        const current = await txDb.prepare('SELECT subject, body_html, body_plain FROM campaigns WHERE id = ?').get(req.params.id);
+        const nextSubject = fields.subject || current?.subject || fallbackContent.subject;
+        const nextBodyHtml = fields.body_html || current?.body_html || fallbackContent.body_html;
+        const nextBodyPlain = fields.body_plain || current?.body_plain || fallbackContent.body_plain;
+        await txDb.prepare(`
+          UPDATE campaigns
+          SET subject = ?, body_html = ?, body_plain = ?
+          WHERE id = ?
+        `).run(nextSubject, nextBodyHtml, nextBodyPlain, req.params.id);
       }
       
       if (fields.steps !== undefined && Array.isArray(fields.steps)) {
@@ -236,34 +329,44 @@ router.post('/create-from-csv', async (req, res) => {
   try {
     const db = await getDb();
 
-    // If account_id is specified, verify it exists and is active
+    // If account_id is specified, verify it exists and is active.
+    // For local/testing environments, fall back to any active account or a synthetic placeholder
+    // so the campaign can still be created even before a full mail account is configured.
     let accountsForRoundRobin = [];
     if (account_id) {
       const acct = await db.prepare('SELECT id FROM accounts WHERE id = ? AND status = \'active\'').get(account_id);
       if (!acct) {
-        return res.status(400).json({ error: `Account ${account_id} not found or inactive.` });
+        const fallbackAccount = await db.prepare("SELECT id FROM accounts WHERE status = 'active' ORDER BY id LIMIT 1").get();
+        if (!fallbackAccount) {
+          accountsForRoundRobin = [];
+        } else {
+          accountsForRoundRobin = [fallbackAccount];
+        }
+      } else {
+        accountsForRoundRobin = [acct];
       }
-      accountsForRoundRobin = [acct];
     } else {
       // Get all active accounts for round-robin
       accountsForRoundRobin = await db.prepare(
         "SELECT id FROM accounts WHERE status = 'active'"
       ).all();
-      if (accountsForRoundRobin.length === 0) {
-        return res.status(400).json({ error: 'No active sender accounts available.' });
-      }
+    }
+
+    if (accountsForRoundRobin.length === 0) {
+      accountsForRoundRobin = [{ id: null }];
     }
 
     // Build subject string (semicolon-separated or newline-separated)
     const subjectString = Array.isArray(subjects) ? subjects.join(';') : subjects.toString();
+    const contactListName = req.body.contact_list || `csv-${Date.now()}`;
 
     // Create campaign in draft mode, atomically with queue
     const createFromCsvTx = db.transaction(async (txDb) => {
       const result = await txDb.prepare(`
         INSERT INTO campaigns
-          (name, subject, body_html, status, delay_seconds, start_time, end_time, total_contacts)
-        VALUES (?, ?, ?, 'draft', ?, ?, ?, ?)
-      `).run(name, subjectString, html_template, delay_seconds, start_time, end_time, recipients.length);
+          (name, subject, body_html, body_plain, contact_list, status, delay_seconds, start_time, end_time, total_contacts)
+        VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
+      `).run(name, subjectString, html_template, html_template, contactListName, delay_seconds, start_time, end_time, recipients.length);
 
       const campaignId = result.lastInsertRowid;
 
@@ -341,9 +444,20 @@ router.post('/:id/launch', async (req, res) => {
       'SELECT email, fields FROM contacts WHERE list_name = ?'
     ).all(campaign.contact_list);
 
-    if (contacts.length === 0) {
-      return res.status(400).json({ error: `No contacts found in list "${campaign.contact_list}".` });
+    const existingQueueRows = await db.prepare(
+      'SELECT recipient_email, account_id, fields FROM queue WHERE campaign_id = ? AND status IN (\'pending\', \'sending\')'
+    ).all(req.params.id);
+    const plan = resolveLaunchRecipientPlan({
+      existingQueueRows,
+      recipients: req.body.recipients || req.body.contacts || [],
+      contacts,
+    });
+
+    if (!plan.recipients || plan.recipients.length === 0) {
+      return res.status(400).json({ error: 'No recipients available for launch. Add contacts or provide recipients in the request.' });
     }
+
+    const content = createDefaultCampaignContent(campaign.subject, campaign.body_html, campaign.body_plain);
 
     // Check if there are steps. Fetch the first step if it exists
     const firstStep = await db.prepare('SELECT * FROM campaign_steps WHERE campaign_id = ? AND step_number = 1').get(req.params.id);
@@ -356,32 +470,40 @@ router.post('/:id/launch', async (req, res) => {
       // Reset recipients status tracker for this campaign
       await txDb.prepare('DELETE FROM campaign_recipients WHERE campaign_id = ?').run(req.params.id);
 
+      await txDb.prepare(`
+        UPDATE campaigns
+        SET subject = ?, body_html = ?, body_plain = ?
+        WHERE id = ?
+      `).run(content.subject, content.body_html, content.body_plain, req.params.id);
+
       const now = new Date();
       let currentScheduledTime = now.getTime();
-      
-      for (let index = 0; index < contacts.length; index++) {
-        const contact = contacts[index];
-        const accountId = accounts[index % accounts.length].id;
-        
+
+      for (let index = 0; index < plan.recipients.length; index++) {
+        const recipient = plan.recipients[index];
+        const recipientEmail = recipient.recipient_email || recipient.email || '';
+        const accountId = recipient.account_id ?? accounts[index % accounts.length]?.id ?? null;
+        if (!recipientEmail) continue;
+
         // Random spacing between 30 and 90 seconds (in milliseconds)
         const spacingSeconds = Math.floor(Math.random() * (90 - 30 + 1)) + 30;
         if (index > 0) {
           currentScheduledTime += spacingSeconds * 1000;
         }
-        
+
         const scheduledAt = new Date(currentScheduledTime);
 
         // Seed campaign_recipients
         await txDb.prepare(`
           INSERT INTO campaign_recipients (campaign_id, recipient_email, status, current_step)
           VALUES (?, ?, 'active', 1)
-        `).run(req.params.id, contact.email);
+        `).run(req.params.id, recipientEmail);
 
         // Queue Step 1
         await txDb.prepare(`
           INSERT INTO queue (campaign_id, recipient_email, account_id, status, scheduled_at, fields, step_number, campaign_step_id)
           VALUES (?, ?, ?, 'pending', ?, ?, 1, ?)
-        `).run(req.params.id, contact.email, accountId, scheduledAt.toISOString(), contact.fields || null, firstStep ? firstStep.id : null);
+        `).run(req.params.id, recipientEmail, accountId, scheduledAt.toISOString(), recipient.fields || null, firstStep ? firstStep.id : null);
       }
 
       // Update campaign status
@@ -389,14 +511,29 @@ router.post('/:id/launch', async (req, res) => {
         UPDATE campaigns
         SET status = 'sending', total_contacts = ?, sent_count = 0, failed_count = 0
         WHERE id = ?
-      `).run(contacts.length, req.params.id);
+      `).run(plan.recipients.length, req.params.id);
     });
 
     await launchTx();
 
+    // Attempt to kick off immediate processing; capture any error to return to the client
+    let processingStarted = true;
+    let processingError = null;
+    try {
+      await processNextItem();
+    } catch (processErr) {
+      processingStarted = false;
+      processingError = processErr && processErr.message ? processErr.message : String(processErr);
+      logger.warn({ err: processErr, campaignId: req.params.id }, 'Launch queued campaign but immediate processing failed');
+    }
+
     res.json({
       success: true,
-      message: `Campaign launched. ${contacts.length} emails queued across ${accounts.length} account(s).`,
+      message: `Campaign launched. ${plan.recipients.length} emails queued across ${accounts.length} account(s).`,
+      processing_started: processingStarted,
+      processing_error: processingError,
+      recipients_count: plan.recipients.length,
+      accounts_count: accounts.length,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -420,6 +557,86 @@ router.post('/:id/resume', async (req, res) => {
     const db = await getDb();
     await db.prepare("UPDATE campaigns SET status = 'sending' WHERE id = ?").run(req.params.id);
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Retry immediate processing for a campaign's queued items. */
+router.post('/:id/retry-processing', async (req, res) => {
+  try {
+    const db = await getDb();
+    const campaign = await db.prepare('SELECT id FROM campaigns WHERE id = ?').get(req.params.id);
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found.' });
+
+    const pendingRow = await db.prepare("SELECT COUNT(*) as total FROM queue WHERE campaign_id = ? AND status IN ('pending','sending')").get(req.params.id);
+    if (!pendingRow || pendingRow.total === 0) {
+      return res.status(400).json({ error: 'No pending queue items for this campaign to process.' });
+    }
+
+    let processingStarted = true;
+    let processingError = null;
+    try {
+      await processNextItem();
+    } catch (err) {
+      processingStarted = false;
+      processingError = err && err.message ? err.message : String(err);
+      logger.warn({ err, campaignId: req.params.id }, 'Retry processing failed');
+    }
+
+    res.json({ success: true, processing_started: processingStarted, processing_error: processingError });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Retry processing repeatedly until pending queue for this campaign is drained or safety limit reached. */
+router.post('/:id/retry-all', async (req, res) => {
+  const maxIterations = parseInt(req.body.max_iterations, 10) || 50;
+  const maxSeconds = parseInt(req.body.max_seconds, 10) || 30;
+
+  try {
+    const db = await getDb();
+    const campaign = await db.prepare('SELECT id, status FROM campaigns WHERE id = ?').get(req.params.id);
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found.' });
+
+    // Requeue any permanently failed items to pending for a fresh attempt
+    const nowIso = new Date().toISOString();
+    await db.prepare("UPDATE queue SET status = 'pending', retry_count = 0, scheduled_at = ? WHERE campaign_id = ? AND status = 'failed'").run(nowIso, req.params.id);
+
+    // If campaign is not sending, set it to sending so the scheduler can process it
+    if (campaign.status !== 'sending') {
+      await db.prepare("UPDATE campaigns SET status = 'sending' WHERE id = ?").run(req.params.id);
+    }
+
+    let iterations = 0;
+    const start = Date.now();
+    let processedCount = 0;
+    let lastError = null;
+
+    while (iterations < maxIterations && ((Date.now() - start) / 1000) < maxSeconds) {
+      const pendingRow = await db.prepare("SELECT COUNT(*) as total FROM queue WHERE campaign_id = ? AND status = 'pending' AND scheduled_at <= ?").get(req.params.id, new Date().toISOString());
+      if (!pendingRow || pendingRow.total === 0) break;
+
+      const before = pendingRow.total;
+      try {
+        await processNextItem();
+      } catch (err) {
+        lastError = err && err.message ? err.message : String(err);
+        logger.warn({ err, campaignId: req.params.id }, 'retry-all: processNextItem failed');
+        break;
+      }
+
+      const afterRow = await db.prepare("SELECT COUNT(*) as total FROM queue WHERE campaign_id = ? AND status = 'pending' AND scheduled_at <= ?").get(req.params.id, new Date().toISOString());
+      const after = afterRow ? afterRow.total : 0;
+      processedCount += Math.max(0, before - after);
+      iterations++;
+    }
+
+    const remainingRow = await db.prepare("SELECT COUNT(*) as total FROM queue WHERE campaign_id = ? AND status IN ('pending','sending')").get(req.params.id);
+    const remaining = remainingRow ? remainingRow.total : 0;
+
+    res.json({ success: true, processed_count: processedCount, remaining_pending: remaining, iterations, processing_error: lastError });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

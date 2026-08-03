@@ -454,7 +454,7 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
                   ? 'Loading scheduler status…'
                   : schedulerEnabled
                     ? 'Scheduler is enabled on this server. Campaign launch actions may proceed.'
-                    : 'Scheduler is disabled on this server. Campaign launch actions are blocked until it is enabled.'
+                    : 'Scheduler is disabled on this server. Launch actions will still attempt immediate backend processing when used.'
                 }
               </p>
             </div>

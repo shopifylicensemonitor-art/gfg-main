@@ -457,7 +457,9 @@ export function FastMailSend({
                 try {
                   const list = await api.getTemplates();
                   setTemplates(list || []);
-                } catch (_) {}
+                } catch (error) {
+                  console.warn('Failed to load templates', error);
+                }
               }
             }}
           >
@@ -745,13 +747,13 @@ export function FastMailSend({
         {onSendViaBackend && (
           <Button
             onClick={onSendViaBackend}
-            disabled={isSendingBackend || !schedulerEnabled}
+            disabled={isSendingBackend}
             className={`h-11 px-3 sm:px-4 text-xs font-bold uppercase tracking-wider rounded-xl flex items-center gap-2 transition-all duration-200 ${
               schedulerEnabled
                 ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg border-none'
-                : 'bg-muted text-muted-foreground cursor-not-allowed border border-border'
+                : 'bg-muted text-muted-foreground border border-border'
             }`}
-            title={!schedulerEnabled ? 'Background scheduler is disabled — enable it on the server' : 'Send via backend campaign scheduler'}
+            title={!schedulerEnabled ? 'Background scheduler is disabled — backend will attempt immediate processing' : 'Send via backend campaign scheduler'}
           >
             {isSendingBackend ? (
               <Loader2 className="h-4 w-4 animate-spin" />

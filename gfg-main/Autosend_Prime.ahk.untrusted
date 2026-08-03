@@ -82,6 +82,12 @@ global EmailBox, ActionDataBtn, SubjectBox, PreviewRecipLbl
 global SubjectRows := []   ; array of {lv row edit controls per subject slot}
 global OverlayGui, OverlayLabel, OverlaySub, OverlayBar
 global PreviewTimer := 0
+; ===== Backend Integration Globals =====
+global BackendServerUrl := "http://localhost:3000"
+global BackendAccessPin := "1234"
+global BackendAuthToken := ""
+global UseFallbackAutomation := 1
+global BackendTimeout := 5000
 
 ; ============================================================
 ;  BRAND & THEME
@@ -131,11 +137,16 @@ LoadSettings() {
     UseHtmlBody        := Integer(IniRead(SettingsFile, "Options", "UseHtmlBody",           0))
     CampaignMode       := Integer(IniRead(SettingsFile, "Options", "CampaignMode",          1))
     CurrentTemplateIdx := Integer(IniRead(SettingsFile, "Options", "CurrentTemplateIdx",    1))
+    BackendServerUrl   := IniRead(SettingsFile, "BackendSettings", "ServerUrl", "http://localhost:3000")
+    BackendAccessPin   := IniRead(SettingsFile, "BackendSettings", "AccessPin", "1234")
+    BackendAuthToken   := IniRead(SettingsFile, "BackendSettings", "AuthToken", "")
+    UseFallbackAutomation := Integer(IniRead(SettingsFile, "BackendSettings", "UseFallback", 1))
+    BackendTimeout     := Integer(IniRead(SettingsFile, "BackendSettings", "Timeout", 5000))
 }
 
 SaveSettings() {
     global PasteDelay, SubjectDelay, AutoCompleteDelay, ConfDelay, SaveDelay, SendDelay, LoopDelay, RandVariation, BodyPasteDelay, ComposeX, ComposeY, ConfX, ConfY, SaveX, SaveY, BodyX, BodyY, ConfidentialMode, UseSubjectRotation, DarkTheme, AutoPauseOnFocus, UseHtmlBody, CampaignMode, CurrentTemplateIdx
-    global UseTemplateRotation, ShowSessionStats, TemplateRotChk, ShowStatsChk, TemplateRotInput, TemplateRotList
+    global UseTemplateRotation, ShowSessionStats, TemplateRotChk, ShowStatsChk, TemplateRotInput, TemplateRotList, BackendServerUrl, BackendAccessPin, BackendAuthToken, UseFallbackAutomation, BackendTimeout
     IniWrite PasteDelay,         SettingsFile, "Delays",  "PasteDelay"
     IniWrite SubjectDelay,       SettingsFile, "Delays",  "SubjectDelay"
     IniWrite AutoCompleteDelay,  SettingsFile, "Delays",  "AutoCompleteDelay"
@@ -163,6 +174,11 @@ SaveSettings() {
     IniWrite UseHtmlBody,        SettingsFile, "Options", "UseHtmlBody"
     IniWrite CampaignMode,       SettingsFile, "Options", "CampaignMode"
     IniWrite CurrentTemplateIdx, SettingsFile, "Options", "CurrentTemplateIdx"
+    IniWrite BackendServerUrl,   SettingsFile, "BackendSettings", "ServerUrl"
+    IniWrite BackendAccessPin,   SettingsFile, "BackendSettings", "AccessPin"
+    IniWrite BackendAuthToken,   SettingsFile, "BackendSettings", "AuthToken"
+    IniWrite UseFallbackAutomation ? 1 : 0, SettingsFile, "BackendSettings", "UseFallback"
+    IniWrite BackendTimeout,     SettingsFile, "BackendSettings", "Timeout"
 }
 
 LoadSubjects() {
@@ -379,6 +395,18 @@ MyGui.Add("Text", "x420 y190 w80", "Send:"), SendDelayEdit := MyGui.Add("Edit", 
 MyGui.Add("Text", "x250 y230 w80", "Loop Base:"), LoopDelayEdit := MyGui.Add("Edit", "x330 y225 w60", LoopDelay)
 MyGui.Add("Text", "x420 y230 w80", "± Variation:"), RandVarEdit := MyGui.Add("Edit", "x500 y225 w60", RandVariation)
 MyGui.Add("Text", "x250 y270 w80", "HTML Body:"), BodyPasteDelayEdit := MyGui.Add("Edit", "x330 y265 w60", BodyPasteDelay)
+
+MyGui.Add("Text", "x25 y310 w300 c" t["title"], "🔌 Backend Integration")
+MyGui.Add("Text", "x25 y335 w100", "Server URL:")
+BackendUrlEdit := MyGui.Add("Edit", "x125 y332 w300 h22", BackendServerUrl)
+BackendUrlEdit.ToolTip := "Backend server (e.g. http://localhost:3000)"
+MyGui.Add("Text", "x25 y365 w100", "Access PIN:")
+BackendPinEdit := MyGui.Add("Edit", "x125 y362 w120 h22", BackendAccessPin)
+BackendPinEdit.ToolTip := "PIN used for local backend testing"
+UseFallbackChk := MyGui.Add("CheckBox", "x25 y395 w400 Checked" UseFallbackAutomation, "☑ Fall back to UI automation if backend is unavailable")
+UseFallbackChk.ToolTip := "If unchecked: fail instead of using the old UI flow"
+TestBackendBtn := MyGui.Add("Button", "x25 y425 w150 h24", "Test Connection")
+TestBackendBtn.OnEvent("Click", TestBackendConnection)
 
 MyGui.Add("Text", "x620 y100 w200 c" t["title"], "Screen Target Calibration")
 ComposeCoordLabel := MyGui.Add("Text", "x620 y130 w130", "Compose: X=" ComposeX " Y=" ComposeY)
@@ -633,6 +661,8 @@ ToggleTheme(*) {
 
 SaveDelaySettings(*) {
     global PasteDelay, SubjectDelay, AutoCompleteDelay, ConfDelay, SaveDelay, SendDelay, LoopDelay, RandVariation, BodyPasteDelay
+    global ConfidentialMode, UseSubjectRotation, AutoPauseOnFocus, UseHtmlBody, UseTemplateRotation, TemplateRotList, ShowSessionStats
+    global BackendServerUrl, BackendAccessPin, BackendAuthToken, UseFallbackAutomation, BackendTimeout
     PasteDelay        := Integer(PasteDelayEdit.Value)
     SubjectDelay      := Integer(SubjectDelayEdit.Value)
     AutoCompleteDelay := Integer(AutoCompleteDelayEdit.Value)
@@ -649,6 +679,9 @@ SaveDelaySettings(*) {
     global UseTemplateRotation := TemplateRotChk.Value
     global TemplateRotList     := TemplateRotInput.Value
     global ShowSessionStats    := ShowStatsChk.Value
+    BackendServerUrl := BackendUrlEdit.Value
+    BackendAccessPin := BackendPinEdit.Value
+    UseFallbackAutomation := UseFallbackChk.Value
     SaveSettings()
     ShowToast("Settings Saved.")
 }
@@ -1447,16 +1480,167 @@ PreFlightSync() {
     }
 }
 
+ObjToJson(obj) {
+    if (obj is Map) {
+        result := "{"
+        first := true
+        for key, value in obj {
+            if (!first)
+                result .= ","
+            result .= '"' . key . '":' . ObjToJson(value)
+            first := false
+        }
+        return result . "}"
+    } else if (obj is Array) {
+        result := "["
+        first := true
+        for item in obj {
+            if (!first)
+                result .= ","
+            result .= ObjToJson(item)
+            first := false
+        }
+        return result . "]"
+    } else if (obj is String) {
+        escaped := StrReplace(obj, "\\", "\\\\")
+        escaped := StrReplace(escaped, '"', '\"')
+        escaped := StrReplace(escaped, "`n", "\\n")
+        escaped := StrReplace(escaped, "`r", "\\r")
+        escaped := StrReplace(escaped, "`t", "\\t")
+        return '"' . escaped . '"'
+    } else if (obj is Integer || obj is Float) {
+        return String(obj)
+    } else if (obj = true) {
+        return "true"
+    } else if (obj = false) {
+        return "false"
+    } else {
+        return "null"
+    }
+}
+
+SendCampaignToBackend() {
+    global BackendServerUrl, BackendAccessPin, BackendAuthToken, BackendTimeout, Subjects, Emails, ActiveCsvQueue, HtmlCodeBox
+    global SubjectListView, CampaignMode
+
+    subjects := []
+    if (IsSet(SubjectListView)) {
+        loop SubjectListView.GetCount() {
+            txt := Trim(SubjectListView.GetText(A_Index, 2))
+            if (txt != "")
+                subjects.Push(txt)
+        }
+    }
+
+    recipients := []
+    if (CampaignMode && IsSet(ActiveCsvQueue) && ActiveCsvQueue.Length > 0) {
+        for row in ActiveCsvQueue {
+            recipObj := Map()
+            for key, val in row {
+                recipObj[key] := val
+            }
+            recipients.Push(recipObj)
+        }
+    } else if (IsSet(Emails) && Emails.Length > 0) {
+        for email in Emails {
+            recipients.Push(Map("email", email))
+        }
+    }
+
+    if (recipients.Length = 0) {
+        ShowToast("⚠ No recipients loaded")
+        return false
+    }
+
+    if (subjects.Length = 0)
+        subjects.Push("Your Subject")
+
+    payload := Map(
+        "name", "Campaign " . A_Now,
+        "subjects", subjects,
+        "recipients", recipients,
+        "html_template", IsSet(HtmlCodeBox) ? HtmlCodeBox.Value : "<h1>Email Body</h1>",
+        "delay_seconds", 30
+    )
+
+    jsonStr := ObjToJson(payload)
+    tempJsonFile := A_Temp . "\campaign_" . A_TickCount . ".json"
+    FileDelete(tempJsonFile)
+    FileAppend(jsonStr, tempJsonFile)
+
+    cmd := 'curl.exe -s -X POST "' . BackendServerUrl . '/api/campaigns/create-from-csv"'
+    cmd .= ' -H "Content-Type: application/json"'
+    if (BackendAuthToken != "")
+        cmd .= ' -H "Authorization: Bearer ' . BackendAuthToken . '"'
+    if (BackendAccessPin != "")
+        cmd .= ' -H "x-access-pin: ' . BackendAccessPin . '"'
+    cmd .= ' -d @"' . tempJsonFile . '"'
+
+    shell := ComObjCreate("WScript.Shell")
+    exec := shell.Exec(ComSpec " /c " cmd)
+    output := Trim(exec.StdOut.ReadAll())
+    FileDelete(tempJsonFile)
+
+    try {
+        response := JSON.Parse(output)
+        if (response.Has("success") && response["success"] = true) {
+            campaignId := response["campaign_id"]
+            recipCount := recipients.Length
+            ShowToast("✅ Campaign #" . campaignId . " created!`nQueued " . recipCount . " recipients")
+            return true
+        } else {
+            errMsg := response.Has("error") ? response["error"] : "Unknown error"
+            ShowToast("⚠ Backend error:`n" . errMsg)
+            return false
+        }
+    } catch Error as err {
+        ShowToast("⚠ Backend unreachable:`n" . BackendServerUrl . "`n" . err.What)
+        return false
+    }
+}
+
+ValidateBackendConnection() {
+    global BackendServerUrl
+
+    cmd := 'curl.exe -s -o nul -w "%{http_code}" "' . BackendServerUrl . '/api/health"'
+    shell := ComObjCreate("WScript.Shell")
+    exec := shell.Exec(ComSpec " /c " cmd)
+    httpCode := Trim(exec.StdOut.ReadAll())
+
+    if (httpCode = "200") {
+        ShowToast("✅ Backend is reachable!")
+        return true
+    } else {
+        ShowToast("⚠ Backend returned HTTP " . httpCode)
+        return false
+    }
+}
+
+TestBackendConnection(*) {
+    ShowToast("Testing backend connection...")
+    ValidateBackendConnection()
+}
+
 DashboardToggleScript(*) {
     global CampaignMode
     
     CleanAndSaveSubjects() ; FORCE CLEANUP BEFORE RUNNING
     PreFlightSync()        ; PRE-FLIGHT: sync EmailBox → runtime queue
-    
-    if (CampaignMode) {
-        ToggleCsvScript()
+
+    if (SendCampaignToBackend()) {
+        return
+    }
+
+    if (UseFallbackAutomation) {
+        ShowToast("📌 Backend unavailable, using UI automation...")
+
+        if (CampaignMode) {
+            ToggleCsvScript()
+        } else {
+            ToggleLegacyScript()
+        }
     } else {
-        ToggleLegacyScript()
+        ShowToast("⚠ Backend API failed and fallback disabled.")
     }
 }
 
