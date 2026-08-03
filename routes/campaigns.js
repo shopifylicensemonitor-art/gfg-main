@@ -210,31 +210,25 @@ router.put('/:id', async (req, res) => {
     if (campaign.status === 'sending') {
       return res.status(400).json({ error: 'Cannot edit a campaign while it is sending. Pause it first.' });
     }
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  const fields = req.body;
-  const allowed = [
-    'name', 'subject', 'body_html', 'body_plain', 'contact_list',
-    'delay_seconds', 'start_time', 'end_time', 'content_variations', 'content_mode',
-  ];
+    const fields = req.body;
+    const allowed = [
+      'name', 'subject', 'body_html', 'body_plain', 'contact_list',
+      'delay_seconds', 'start_time', 'end_time', 'content_variations', 'content_mode',
+    ];
 
-  const updates = [];
-  const values = [];
+    const updates = [];
+    const values = [];
 
-  for (const key of allowed) {
-    if (fields[key] !== undefined) {
-      updates.push(`${key} = ?`);
-      let val = fields[key];
-      if (key === 'content_variations') {
-        val = typeof fields[key] === 'string' ? fields[key] : JSON.stringify(fields[key]);
+    for (const key of allowed) {
+      if (fields[key] !== undefined) {
+        updates.push(`${key} = ?`);
+        let val = fields[key];
+        if (key === 'content_variations') {
+          val = typeof fields[key] === 'string' ? fields[key] : JSON.stringify(fields[key]);
+        }
+        values.push(val);
       }
-      values.push(val);
     }
-  }
-
-  try {
-    const db = await getDb();
-<<<<<<< HEAD
 
     if (fields.contact_list) {
       const countRow = await db.prepare(
@@ -244,9 +238,7 @@ router.put('/:id', async (req, res) => {
       values.push(countRow ? countRow.total : 0);
     }
 
-=======
     const fallbackContent = createDefaultCampaignContent(fields.subject, fields.body_html, fields.body_plain);
->>>>>>> 02e3985 (feat: add campaign management dashboard and core email delivery routing)
     const updateBoth = db.transaction(async (txDb) => {
       if (updates.length > 0) {
         values.push(req.params.id);
