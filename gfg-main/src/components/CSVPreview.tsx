@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { suggestFieldMapping, extractEmailsAndUrlsFromCell, type ParsedCSV } from '@/lib/csvParser';
-import { Search, AlertCircle, CheckCircle2, XCircle, ChevronLeft, ChevronRight, FileSpreadsheet, Trash2 } from 'lucide-react';
+import { Search, AlertCircle, CheckCircle2, XCircle, ChevronLeft, ChevronRight, FileSpreadsheet, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,7 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
   const [statusFilter, setStatusFilter] = useState<'all' | 'valid' | 'invalid'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const itemsPerPage = 10;
 
   // 1. Identify which CSV column key maps to 'email'
@@ -120,36 +121,77 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
   }
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-card/40 backdrop-blur-sm p-4 relative overflow-hidden transition-all duration-300">
-      {/* Top Header Card Info */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/40">
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500">
-            <FileSpreadsheet className="h-4 w-4" />
+    <div className="space-y-3 rounded-2xl border border-border/80 bg-card/60 backdrop-blur-md p-4 sm:p-5 shadow-xl relative overflow-hidden transition-all duration-300 hover:border-primary/20">
+      {/* Top Header Collapsible Card Bar */}
+      <div className="flex items-center justify-between gap-3 select-none">
+        <button
+          type="button"
+          onClick={() => setIsCollapsed(prev => !prev)}
+          className="flex items-center gap-3 text-left focus:outline-none flex-1 group cursor-pointer"
+        >
+          <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-500 group-hover:scale-105 transition-transform">
+            <FileSpreadsheet className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="text-xs font-bold text-foreground flex items-center gap-1.5">
-              <span>CSV Data Inspector</span>
-              <span className="text-[10px] text-muted-foreground font-normal">({fileName})</span>
-            </h3>
-            <p className="text-[9px] text-muted-foreground leading-none mt-0.5">
-              Explore CSV columns, mapped field values, and target emails.
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-xs sm:text-sm font-black text-foreground tracking-tight">
+                CSV Data Inspector
+              </h3>
+              {fileName && (
+                <Badge variant="outline" className="text-[10px] font-mono px-2 py-0.5 border-emerald-500/30 text-emerald-500 bg-emerald-500/5 font-semibold">
+                  {fileName}
+                </Badge>
+              )}
+              <Badge variant="secondary" className="text-[10px] font-semibold px-2 py-0.5 bg-primary/10 text-primary border-none">
+                {rows.length} Leads
+              </Badge>
+              {counts.valid > 0 && (
+                <Badge variant="outline" className="text-[10px] font-semibold px-2 py-0.5 border-emerald-500/20 text-emerald-400 bg-emerald-500/5">
+                  {counts.valid} Valid Emails
+                </Badge>
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {isCollapsed ? 'Click card to expand CSV data preview & mapped columns' : 'Explore CSV columns, mapped field values, and target emails.'}
             </p>
           </div>
-        </div>
+        </button>
 
-        {onClearPreview && (
+        <div className="flex items-center gap-2">
+          {onClearPreview && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClearPreview();
+              }}
+              className="h-8 text-[10px] px-2.5 text-destructive hover:bg-destructive/10 hover:text-destructive rounded-xl flex items-center gap-1 font-bold uppercase tracking-wider transition-all"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Unload CSV</span>
+            </Button>
+          )}
+
           <Button
             variant="ghost"
-            size="sm"
-            onClick={onClearPreview}
-            className="h-7 text-[10px] px-2 text-destructive hover:bg-destructive/10 hover:text-destructive rounded-lg flex items-center gap-1 shrink-0 font-semibold uppercase tracking-wider animate-fade-in"
+            size="icon"
+            onClick={() => setIsCollapsed(prev => !prev)}
+            className="h-8 w-8 rounded-xl hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+            title={isCollapsed ? 'Expand CSV Inspector' : 'Collapse CSV Inspector'}
           >
-            <Trash2 className="h-3 w-3" />
-            Unload CSV
+            {isCollapsed ? (
+              <ChevronDown className="h-4 w-4 text-primary animate-bounce-slow" />
+            ) : (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            )}
           </Button>
-        )}
+        </div>
       </div>
+
+      {/* Collapsible Content Body */}
+      {!isCollapsed && (
+        <div className="space-y-4 pt-3 border-t border-border/30 animate-in fade-in slide-in-from-top-2 duration-200">
 
       {/* Search & Segments Filter Controls */}
       <div className="flex flex-col md:flex-row gap-3 md:items-center justify-between">
@@ -381,6 +423,8 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
               <ChevronRight className="h-3.5 w-3.5" />
             </Button>
           </div>
+        </div>
+      )}
         </div>
       )}
     </div>
