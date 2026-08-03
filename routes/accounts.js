@@ -21,11 +21,12 @@ const transportCache = new Map();
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getOAuth2Client() {
+function getOAuth2Client(customRedirectUri) {
+  const redirectUri = customRedirectUri || process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/accounts/callback';
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
+    redirectUri
   );
 }
 
@@ -34,25 +35,45 @@ function getOAuth2Client() {
  * Returns the (possibly refreshed) access_token.
  */
 async function ensureFreshToken(account) {
+  if (!account) throw new Error('No account provided to ensureFreshToken');
   const now = Date.now();
   const expiry = account.token_expiry ? Number(account.token_expiry) : 0;
-  if (expiry && now < expiry - 60000) {
-    return account.access_token; // Still valid
+  
+  // If access_token exists and token_expiry is valid in the future (with 1-min buffer), reuse access_token
+  if (account.access_token && expiry && now < expiry - 60000) {
+    return account.access_token;
   }
 
-  const oauth2 = getOAuth2Client();
-  oauth2.setCredentials({ refresh_token: account.refresh_token });
-  const { credentials } = await oauth2.refreshAccessToken();
+  // If no refresh_token is saved, fallback to access_token if present
+  if (!account.refresh_token) {
+    if (account.access_token) return account.access_token;
+    throw new Error(`Account ${account.email} has no refresh token. Please reconnect this account via Google OAuth.`);
+  }
 
-  const db = await getDb();
-  await db.prepare(`
-    UPDATE accounts
-    SET access_token  = ?,
-        token_expiry  = ?
-    WHERE id = ?
-  `).run(credentials.access_token, credentials.expiry_date, account.id);
+  try {
+    const oauth2 = getOAuth2Client();
+    oauth2.setCredentials({ refresh_token: account.refresh_token });
+    const { credentials } = await oauth2.refreshAccessToken();
 
-  return credentials.access_token;
+    const db = await getDb();
+    const newExpiry = credentials.expiry_date || (Date.now() + 3600 * 1000);
+    const newAccessToken = credentials.access_token || account.access_token;
+
+    await db.prepare(`
+      UPDATE accounts
+      SET access_token  = ?,
+          token_expiry  = ?
+      WHERE id = ?
+    `).run(newAccessToken, newExpiry, account.id);
+
+    return newAccessToken;
+  } catch (err) {
+    // If refreshing failed but we have an access_token, fallback gracefully
+    if (account.access_token) {
+      return account.access_token;
+    }
+    throw err;
+  }
 }
 
 /**
@@ -111,9 +132,15 @@ router.get('/', async (_req, res) => {
 });
 
 /** Generate Google OAuth consent URL. */
-router.post('/auth-url', (_req, res) => {
+router.post('/auth-url', (req, res) => {
   try {
-    const oauth2 = getOAuth2Client();
+    let customRedirectUri = req.body?.redirect_uri;
+    if (!customRedirectUri && req.headers.host && (req.headers.host.includes('localhost') || req.headers.host.includes('127.0.0.1'))) {
+      const protocol = req.headers['x-forwarded-proto'] || 'http';
+      customRedirectUri = `${protocol}://${req.headers.host}/api/accounts/callback`;
+    }
+
+    const oauth2 = getOAuth2Client(customRedirectUri);
     const url = oauth2.generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
@@ -611,21 +638,27 @@ router.post('/send-direct', async (req, res) => {
 
 /** Build a base64url-encoded RFC 2822 message with optional extra headers. */
 function makeRawEmail(from, to, subject, body, extraHeaders = {}) {
+  const cleanSubject = /[^\x00-\x7F]/.test(subject || '')
+    ? `=?UTF-8?B?${Buffer.from(subject || '', 'utf-8').toString('base64')}?=`
+    : (subject || '');
+
   const headerLines = [
     `From: ${from}`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${cleanSubject}`,
     'MIME-Version: 1.0',
     'Content-Type: text/html; charset=utf-8',
   ];
 
   // Append any extra headers (e.g., List-Unsubscribe)
   for (const [key, value] of Object.entries(extraHeaders)) {
-    headerLines.push(`${key}: ${value}`);
+    if (value) {
+      headerLines.push(`${key}: ${value}`);
+    }
   }
 
-  const msg = [...headerLines, '', body].join('\r\n');
-  return Buffer.from(msg).toString('base64url');
+  const msg = [...headerLines, '', body || ''].join('\r\n');
+  return Buffer.from(msg, 'utf-8').toString('base64url');
 }
 
 // Export the helper for the scheduler

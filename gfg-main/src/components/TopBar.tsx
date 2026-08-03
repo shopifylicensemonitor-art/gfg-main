@@ -192,7 +192,7 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 lg:h-16 w-full items-center justify-between border-b border-border bg-background/60 px-3 sm:px-6 backdrop-blur-md">
+    <header className="sticky top-0 z-50 flex h-14 lg:h-16 w-full items-center justify-between border-b border-border bg-background/80 px-3 sm:px-6 backdrop-blur-md">
       {/* Left side: Hamburger menu & Search */}
       <div className="flex flex-1 items-center gap-3">
         <button
@@ -252,7 +252,7 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
 
           {/* Notifications Dropdown */}
           {showNotifications && (
-            <div className="absolute right-0 mt-2 w-80 rounded-xl border border-border bg-card p-2 shadow-xl animate-card-enter">
+            <div className="absolute right-0 mt-2 w-80 rounded-xl border border-border bg-card p-2 shadow-2xl z-[100] animate-card-enter">
               <div className="flex items-center justify-between border-b border-border px-3 py-2 pb-2">
                 <span className="text-xs font-bold text-foreground">Recent Activity</span>
                 {unreadCount > 0 && (
@@ -346,7 +346,7 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
 
           {/* Profile Dropdown Menu */}
           {showProfileMenu && (
-            <div className="absolute right-0 mt-2 w-48 rounded-xl border border-border bg-card p-1.5 shadow-xl animate-card-enter">
+            <div className="absolute right-0 mt-2 w-48 rounded-xl border border-border bg-card p-1.5 shadow-2xl z-[100] animate-card-enter">
               <div className="border-b border-border px-3 py-2 pb-2 mb-1">
                 <p className="text-xs font-bold text-foreground truncate">{user?.name || 'Administrator'}</p>
                 <p className="text-[9px] text-muted-foreground truncate">{user?.email || 'admin@peakxender.com'}</p>
