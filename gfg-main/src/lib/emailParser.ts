@@ -69,25 +69,19 @@ function parseLineWithMultipleEmails(line: string): ParsedMatch[] {
     return parsed ? [parsed] : [];
   }
 
-  // Multiple emails on the same line. Split by comma/semicolon,
-  // merging parts that don't have an email to handle quoted commas.
-  const parts = line.split(/[,;]/);
-  const results: ParsedMatch[] = [];
-  let accumulator = '';
-
-  for (const part of parts) {
-    const combined = accumulator ? accumulator + ',' + part : part;
-    const partMatch = combined.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-    if (partMatch) {
-      const parsed = parseSingleEmailLine(combined, partMatch[0]);
-      if (parsed) results.push(parsed);
-      accumulator = '';
-    } else {
-      accumulator = combined;
-    }
+  // Multiple emails on the same line: group them into a single comma-separated recipient entry
+  const uniqueEmails = Array.from(new Set(allEmails.map(e => e.toLowerCase())));
+  let name = '';
+  const firstEmailIndex = line.indexOf(allEmails[0]);
+  if (firstEmailIndex > 0) {
+    const prefix = line.substring(0, firstEmailIndex).trim();
+    name = prefix.replace(/^["'\s<>()]+|["'\s<>()]+$/g, '').trim();
   }
 
-  return results;
+  return [{
+    email: uniqueEmails.join(', '),
+    name
+  }];
 }
 
 export function parseEmailsText(text: string, isCSV: boolean = false): { email: string; name?: string }[] {

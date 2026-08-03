@@ -98,7 +98,8 @@ const Row = memo(
       onSendClick(entry.email);
     };
 
-    const [localPart, domainPart] = entry.email.split('@');
+    const firstEmail = entry.email.split(',')[0].trim();
+    const [localPart, domainPart] = firstEmail.split('@');
     const pSname = domainPart ? domainPart.split('.')[0] : '';
     const displayName = entry.name || localPart;
 
@@ -272,7 +273,8 @@ export function GeneratedEmails({
       setBatchQueue([]);
       return;
     }
-    const [localPart, domainPart] = entry.email.split('@');
+    const firstEmail = entry.email.split(',')[0].trim();
+    const [localPart, domainPart] = firstEmail.split('@');
     const pSname = domainPart ? domainPart.split('.')[0] : '';
     const displayName = entry.name || localPart;
     let processedSubject = subject

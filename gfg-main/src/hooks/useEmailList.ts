@@ -114,19 +114,20 @@ export function parseEmailsTextWithFields(text: string): EmailEntry[] {
         });
 
         const name = fields['first_name'] || undefined;
+        if (emailCandidates.length === 0) return [];
 
-        return emailCandidates.map(email => {
-          const isValid = emailRegex.test(email);
-          const currentSeq = seq++;
-          return {
-            id: String(currentSeq),
-            sequenceId: currentSeq,
-            email,
-            name,
-            isValid,
-            fields: { ...fields }
-          };
-        });
+        const combinedEmail = emailCandidates.join(', ');
+        const isValid = emailCandidates.every(e => emailRegex.test(e));
+        const currentSeq = seq++;
+
+        return [{
+          id: String(currentSeq),
+          sequenceId: currentSeq,
+          email: combinedEmail,
+          name,
+          isValid,
+          fields: { ...fields }
+        }];
       });
     }
   }

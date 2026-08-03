@@ -178,9 +178,11 @@ export function buildMailtoLink({
     params = rand.shuffle(params);
   }
 
+  const cleanRecipient = finalRecipient.replace(/\s+/g, '');
+
   // 6. Encode and construct the query string
   if (params.length === 0) {
-    return `mailto:${finalRecipient}`;
+    return `mailto:${cleanRecipient}`;
   }
 
   const queryString = params
@@ -192,5 +194,5 @@ export function buildMailtoLink({
     })
     .join('&');
 
-  return `mailto:${finalRecipient}?${queryString}`;
+  return `mailto:${cleanRecipient}?${queryString}`;
 }

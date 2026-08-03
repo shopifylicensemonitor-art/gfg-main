@@ -94,7 +94,7 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
 
   const validRows = useMemo(() => rowsWithStats.filter(r => r.isValidEmail), [rowsWithStats]);
 
-  const toggleSelectAll = () => {
+  const toggleSelectAll = useCallback(() => {
     const validIndexes = validRows.map(r => r.index);
     const allSelected = validIndexes.every(idx => selectedIndices.has(idx));
     if (allSelected) {
@@ -102,7 +102,7 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
     } else {
       setSelectedIndices(new Set(validIndexes));
     }
-  };
+  }, [validRows, selectedIndices]);
 
   // 4. Pagination
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));
