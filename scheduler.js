@@ -31,18 +31,28 @@ const { parseSpintax } = require('./execution/spintax');
  * Check if the current time is within the campaign's allowed sending window.
  */
 function isWithinSendingWindow(campaign) {
+  if (campaign.ignore_window || campaign.start_time === '00:00' && (campaign.end_time === '23:59' || campaign.end_time === '24:00')) {
+    return true;
+  }
   const now = new Date();
   const hours = now.getHours();
   const minutes = now.getMinutes();
   const currentTime = hours * 60 + minutes;
 
-  const [startH, startM] = (campaign.start_time || '08:00').split(':').map(Number);
-  const [endH, endM] = (campaign.end_time || '22:00').split(':').map(Number);
+  const [startH = 8, startM = 0] = (campaign.start_time || '08:00').split(':').map(Number);
+  const [endH = 22, endM = 0] = (campaign.end_time || '22:00').split(':').map(Number);
 
   const startMinutes = startH * 60 + startM;
   const endMinutes = endH * 60 + endM;
 
-  return currentTime >= startMinutes && currentTime <= endMinutes;
+  if (startMinutes === endMinutes) return true;
+
+  if (startMinutes <= endMinutes) {
+    return currentTime >= startMinutes && currentTime <= endMinutes;
+  } else {
+    // Overnight window (e.g. 22:00 to 06:00)
+    return currentTime >= startMinutes || currentTime <= endMinutes;
+  }
 }
 
 // ---------------------------------------------------------------------------

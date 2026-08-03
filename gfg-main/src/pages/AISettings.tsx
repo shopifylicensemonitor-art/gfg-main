@@ -171,6 +171,15 @@ export default function AISettings() {
     setTesting(true);
     setTestResult(null);
     try {
+      if (apiKey) {
+        await api.saveAIConfig({
+          provider: selectedProvider,
+          apiKey: apiKey.trim(),
+          baseUrl,
+          model
+        });
+        setApiKey('');
+      }
       const res = await api.testAIConnection();
       if (res.success) {
         setTestResult({ success: true, message: res.response || 'Connection verified successfully!' });
@@ -178,6 +187,7 @@ export default function AISettings() {
       } else {
         setTestResult({ success: false, message: res.error || 'Connection failed.' });
       }
+      loadData();
     } catch (err: any) {
       setTestResult({ success: false, message: err.message });
     } finally {

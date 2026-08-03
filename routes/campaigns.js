@@ -141,8 +141,6 @@ router.put('/:id', async (req, res) => {
     }
   } catch (err) {
     return res.status(500).json({ error: err.message });
-  }
-
   const fields = req.body;
   const allowed = [
     'name', 'subject', 'body_html', 'body_plain', 'contact_list',
@@ -155,12 +153,25 @@ router.put('/:id', async (req, res) => {
   for (const key of allowed) {
     if (fields[key] !== undefined) {
       updates.push(`${key} = ?`);
-      values.push(key === 'content_variations' ? JSON.stringify(fields[key]) : fields[key]);
+      let val = fields[key];
+      if (key === 'content_variations') {
+        val = typeof fields[key] === 'string' ? fields[key] : JSON.stringify(fields[key]);
+      }
+      values.push(val);
     }
   }
 
   try {
     const db = await getDb();
+
+    if (fields.contact_list) {
+      const countRow = await db.prepare(
+        'SELECT COUNT(*) as total FROM contacts WHERE list_name = ?'
+      ).get(fields.contact_list);
+      updates.push('total_contacts = ?');
+      values.push(countRow ? countRow.total : 0);
+    }
+
     const updateBoth = db.transaction(async (txDb) => {
       if (updates.length > 0) {
         values.push(req.params.id);
@@ -185,7 +196,6 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-/** Delete a campaign and its queue items. */
 router.delete('/:id', async (req, res) => {
   try {
     const db = await getDb();

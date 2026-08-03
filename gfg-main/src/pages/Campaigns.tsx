@@ -65,7 +65,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
 
   useEffect(() => {
     if (selectedList) {
-      api.getContacts(selectedList).then(contacts => {
+      api.getContacts(selectedList, 1).then(contacts => {
         if (contacts.length > 0 && contacts[0].fields) {
           const keys = Object.keys(contacts[0].fields);
           setListTokens(keys);
@@ -340,6 +340,11 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
     }
   };
 
+  const [editContentMode, setEditContentMode] = useState<'single' | 'rotation'>('single');
+  const [editVariations, setEditVariations] = useState<{ subject: string; body_html: string }[]>([
+    { subject: '', body_html: '' }
+  ]);
+
   const handleOpenEdit = (c: Campaign) => {
     setEditingCampaign(c);
     setEditName(c.name);
@@ -349,6 +354,19 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
     setEditDelay(c.delay_seconds || 30);
     setEditStartTime(c.start_time || '08:00');
     setEditEndTime(c.end_time || '22:00');
+    setEditContentMode(c.content_mode || 'single');
+
+    let parsed: { subject: string; body_html: string }[] = [];
+    if (c.content_variations) {
+      try {
+        const arr = JSON.parse(c.content_variations);
+        if (Array.isArray(arr) && arr.length > 0) parsed = arr;
+      } catch (_) {}
+    }
+    if (parsed.length === 0) {
+      parsed = [{ subject: c.subject || '', body_html: c.body_html || '' }];
+    }
+    setEditVariations(parsed);
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -356,14 +374,19 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
     if (!editingCampaign) return;
     setSavingEdit(true);
     try {
+      const finalSubj = editContentMode === 'rotation' && editVariations.length > 0 ? editVariations[0].subject : editSubject;
+      const finalHtml = editContentMode === 'rotation' && editVariations.length > 0 ? editVariations[0].body_html : editBodyHtml;
+
       await api.updateCampaign(editingCampaign.id, {
         name: editName,
-        subject: editSubject,
-        body_html: editBodyHtml,
+        subject: finalSubj,
+        body_html: finalHtml,
         body_plain: editBodyPlain,
         delay_seconds: editDelay,
         start_time: editStartTime,
         end_time: editEndTime,
+        content_mode: editContentMode,
+        content_variations: editContentMode === 'rotation' ? (editVariations as any) : null,
       });
       toast({
         title: 'Campaign updated',
@@ -953,12 +976,12 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
 
       {/* Campaign Edit Modal */}
       {editingCampaign && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex justify-center z-50 overflow-y-auto p-4 sm:p-6 animate-in fade-in duration-200">
-          <div className="my-auto bg-card text-card-foreground border border-border shadow-2xl rounded-2xl p-6 max-w-xl w-full animate-in zoom-in-95 duration-200 space-y-4">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex justify-center z-50 overflow-y-auto p-3 sm:p-6 animate-in fade-in duration-200">
+          <div className="my-auto bg-card text-card-foreground border border-border shadow-2xl rounded-2xl p-4 sm:p-6 max-w-xl w-full animate-in zoom-in-95 duration-200 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-border/40 pb-3">
               <div className="flex items-center gap-2">
                 <Pencil className="h-5 w-5 text-primary" />
-                <h3 className="text-base font-bold text-foreground">Edit Campaign #{editingCampaign.id}</h3>
+                <h3 className="text-sm sm:text-base font-bold text-foreground">Edit Campaign #{editingCampaign.id}</h3>
               </div>
               <Button size="sm" variant="ghost" onClick={() => setEditingCampaign(null)} className="h-7 w-7 p-0">
                 ✕
@@ -977,39 +1000,141 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                 />
               </div>
 
-              <div>
-                <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">Subject Line</label>
-                <input
-                  type="text"
-                  required
-                  value={editSubject}
-                  onChange={e => setEditSubject(e.target.value)}
-                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
-                />
+              {/* Delivery Mode Toggle */}
+              <div className="space-y-1.5">
+                <label className="block font-semibold text-muted-foreground uppercase text-[10px]">Content Delivery Mode</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditContentMode('single')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
+                      editContentMode === 'single'
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border/40 hover:bg-muted/40 text-muted-foreground'
+                    }`}
+                  >
+                    Single Layout
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditContentMode('rotation')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
+                      editContentMode === 'rotation'
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border/40 hover:bg-muted/40 text-muted-foreground'
+                    }`}
+                  >
+                    Rotational Variations
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">Email HTML Body</label>
-                <textarea
-                  required
-                  rows={6}
-                  value={editBodyHtml}
-                  onChange={e => setEditBodyHtml(e.target.value)}
-                  className="w-full p-3 text-xs font-mono rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
-                />
-              </div>
+              {/* Single Mode Input */}
+              {editContentMode === 'single' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">Subject Line</label>
+                    <input
+                      type="text"
+                      required
+                      value={editSubject}
+                      onChange={e => setEditSubject(e.target.value)}
+                      className="w-full px-3.5 py-2 text-xs rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">Email HTML Body</label>
+                    <textarea
+                      required
+                      rows={5}
+                      value={editBodyHtml}
+                      onChange={e => setEditBodyHtml(e.target.value)}
+                      className="w-full p-3 text-xs font-mono rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Rotational Variations Mode Input */}
+              {editContentMode === 'rotation' && (
+                <div className="space-y-3 border border-border/40 rounded-xl p-3 bg-muted/20">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold flex items-center gap-1.5">
+                      <RotateCw className="h-3.5 w-3.5 text-primary" />
+                      Variations ({editVariations.length})
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setEditVariations([...editVariations, { subject: '', body_html: '' }])}
+                      className="h-7 text-[10px] gap-1"
+                    >
+                      <Plus className="h-3 w-3" /> Add Variation
+                    </Button>
+                  </div>
+
+                  <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
+                    {editVariations.map((v, idx) => (
+                      <div key={idx} className="p-3 border border-border/20 bg-background rounded-xl space-y-2 relative">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-muted-foreground uppercase">Variation #{idx + 1}</span>
+                          {editVariations.length > 1 && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                const next = [...editVariations];
+                                next.splice(idx, 1);
+                                setEditVariations(next);
+                              }}
+                              className="h-5 w-5 p-0 text-destructive"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Subject line..."
+                          value={v.subject}
+                          onChange={e => {
+                            const next = [...editVariations];
+                            next[idx].subject = e.target.value;
+                            setEditVariations(next);
+                          }}
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-input bg-muted"
+                        />
+                        <textarea
+                          placeholder="HTML Body..."
+                          rows={3}
+                          value={v.body_html}
+                          onChange={e => {
+                            const next = [...editVariations];
+                            next[idx].body_html = e.target.value;
+                            setEditVariations(next);
+                          }}
+                          className="w-full p-2 text-xs font-mono rounded-lg border border-input bg-muted"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">Plain Text Fallback</label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   value={editBodyPlain}
                   onChange={e => setEditBodyPlain(e.target.value)}
-                  className="w-full p-3 text-xs rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
+                  className="w-full p-2.5 text-xs rounded-xl border border-input bg-muted focus:border-primary focus:outline-none"
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-semibold text-muted-foreground mb-1 uppercase text-[10px]">Delay (seconds)</label>
                   <input

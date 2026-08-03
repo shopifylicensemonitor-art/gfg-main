@@ -554,6 +554,61 @@ router.post('/:id/test', async (req, res) => {
   }
 });
 
+/** Send a direct email immediately (bypassing campaign batch queue). */
+router.post('/send-direct', async (req, res) => {
+  const { account_id, to, subject, html_body, text_body } = req.body;
+  if (!to || (!html_body && !text_body)) {
+    return res.status(400).json({ error: 'Missing required fields: to and body.' });
+  }
+
+  try {
+    const db = await getDb();
+    let account;
+    if (account_id) {
+      account = await db.prepare("SELECT * FROM accounts WHERE id = ? AND status = 'active'").get(account_id);
+    } else {
+      account = await db.prepare("SELECT * FROM accounts WHERE status = 'active' ORDER BY id ASC LIMIT 1").get();
+    }
+
+    if (!account) {
+      return res.status(400).json({ error: 'No active sender accounts found. Please connect an account first.' });
+    }
+
+    const emailSubject = subject || 'Direct Outreach';
+    const emailBody = html_body || `<p>${(text_body || '').replace(/\n/g, '<br/>')}</p>`;
+    const fromAddr = account.display_name ? `"${account.display_name}" <${account.email}>` : account.email;
+
+    if (account.type === 'smtp') {
+      const transport = createSmtpTransport(account);
+      await transport.sendMail({
+        from: fromAddr,
+        to,
+        subject: emailSubject,
+        html: emailBody,
+      });
+    } else {
+      const accessToken = await ensureFreshToken(account);
+      const oauth2 = getOAuth2Client();
+      oauth2.setCredentials({ access_token: accessToken });
+
+      const gmail = google.gmail({ version: 'v1', auth: oauth2 });
+      const raw = makeRawEmail(account.email, to, emailSubject, emailBody);
+      await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+    }
+
+    // Update account daily count & write to logs table
+    await db.prepare('UPDATE accounts SET daily_sent = daily_sent + 1 WHERE id = ?').run(account.id);
+    await db.prepare(`
+      INSERT INTO logs (account_id, recipient_email, status, message)
+      VALUES (?, ?, 'sent', ?)
+    `).run(account.id, to, `Direct email sent to ${to}`);
+
+    res.json({ success: true, message: `Email sent immediately to ${to} via ${account.email}.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /** Build a base64url-encoded RFC 2822 message with optional extra headers. */
 function makeRawEmail(from, to, subject, body, extraHeaders = {}) {
   const headerLines = [

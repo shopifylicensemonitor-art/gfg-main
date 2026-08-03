@@ -120,6 +120,7 @@ export interface LogItem {
   status: string;
   message: string;
   created_at: string;
+  queue_id?: number | null;
   sender_email?: string;
   campaign_name?: string;
   final_subject?: string;
@@ -290,6 +291,16 @@ export const api = {
     smtp_secure: boolean;
     display_name?: string;
   }) => apiFetch<{ success: boolean; message: string }>('/api/accounts/smtp', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }),
+  sendDirectEmail: (data: {
+    account_id?: number | null;
+    to: string;
+    subject?: string;
+    html_body?: string;
+    text_body?: string;
+  }) => apiFetch<{ success: boolean; message: string }>('/api/accounts/send-direct', {
     method: 'POST',
     body: JSON.stringify(data)
   }),

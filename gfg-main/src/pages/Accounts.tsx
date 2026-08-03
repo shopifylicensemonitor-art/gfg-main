@@ -50,6 +50,25 @@ export default function Accounts({ requirePin }: AccountsProps) {
 
   useEffect(() => {
     loadAccounts();
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
+        toast({
+          title: 'Gmail Connected!',
+          description: `Connected ${event.data.email} successfully.`
+        });
+        loadAccounts();
+      } else if (event.data?.type === 'GOOGLE_AUTH_ERROR') {
+        toast({
+          variant: 'destructive',
+          title: 'Gmail Connection Failed',
+          description: event.data.error || 'OAuth authorization failed.'
+        });
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
   }, []);
 
   const handleConnect = () => {

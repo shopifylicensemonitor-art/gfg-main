@@ -87,6 +87,41 @@ router.post('/state/save', async (req, res) => {
   }
 });
 
+/** Get email activity history for a specific recipient email address. */
+router.get('/history/:email', async (req, res) => {
+  try {
+    const db = await getDb();
+    const email = req.params.email;
+
+    // Sent queue emails
+    const queueSends = await db.prepare(`
+      SELECT q.*, c.name as campaign_name
+      FROM queue q
+      LEFT JOIN campaigns c ON q.campaign_id = c.id
+      WHERE q.recipient_email = ?
+      ORDER BY q.id DESC
+    `).all(email);
+
+    // Logs
+    const logItems = await db.prepare(`
+      SELECT * FROM logs WHERE recipient_email = ? ORDER BY id DESC LIMIT 20
+    `).all(email);
+
+    // Received inbox replies
+    const replies = await db.prepare(`
+      SELECT * FROM inbox_messages WHERE sender_email = ? OR recipient_email = ? ORDER BY id DESC
+    `).all(email, email);
+
+    res.json({
+      sends: queueSends || [],
+      logs: logItems || [],
+      replies: replies || []
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /** Get all contacts in a specific list, with optional pagination. */
 router.get('/:listName', async (req, res) => {
   try {
@@ -562,41 +597,6 @@ router.delete('/:listName/:id', async (req, res) => {
     await db.prepare('DELETE FROM contacts WHERE id = ? AND list_name = ?')
       .run(req.params.id, req.params.listName);
     res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/** Get email activity history for a specific recipient email address. */
-router.get('/history/:email', async (req, res) => {
-  try {
-    const db = await getDb();
-    const email = req.params.email;
-
-    // Sent queue emails
-    const queueSends = await db.prepare(`
-      SELECT q.*, c.name as campaign_name
-      FROM queue q
-      LEFT JOIN campaigns c ON q.campaign_id = c.id
-      WHERE q.recipient_email = ?
-      ORDER BY q.id DESC
-    `).all(email);
-
-    // Logs
-    const logItems = await db.prepare(`
-      SELECT * FROM logs WHERE recipient_email = ? ORDER BY id DESC LIMIT 20
-    `).all(email);
-
-    // Received inbox replies
-    const replies = await db.prepare(`
-      SELECT * FROM inbox_messages WHERE sender_email = ? OR recipient_email = ? ORDER BY id DESC
-    `).all(email, email);
-
-    res.json({
-      sends: queueSends || [],
-      logs: logItems || [],
-      replies: replies || []
-    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

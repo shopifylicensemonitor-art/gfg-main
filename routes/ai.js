@@ -77,7 +77,11 @@ async function callAI(messages, systemOverride = null) {
   const defaultSystem = 'You are Peak Xender AI, an elite cold email outreach assistant and high-converting copywriter.' + rulesContext;
   const systemPrompt = systemOverride ? systemOverride + rulesContext : defaultSystem;
 
-  const endpointUrl = `${config.baseUrl}/chat/completions`;
+  let baseUrl = (config.baseUrl || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
+  if (!baseUrl.endsWith('/v1') && !baseUrl.includes('/v1/') && !baseUrl.endsWith('/chat/completions')) {
+    baseUrl = `${baseUrl}/v1`;
+  }
+  const endpointUrl = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
   const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
   const res = await fetch(endpointUrl, {
@@ -88,7 +92,7 @@ async function callAI(messages, systemOverride = null) {
       ...(config.provider === 'openrouter' ? { 'HTTP-Referer': 'https://send.peakconix.site', 'X-Title': 'Peak Xender' } : {})
     },
     body: JSON.stringify({
-      model: config.model,
+      model: config.model || 'openai/gpt-4o-mini',
       messages: fullMessages,
       temperature: 0.7,
       max_tokens: 1500,
