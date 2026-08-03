@@ -56,6 +56,9 @@ jane@example.com,Jane Doe,Shop B`;
       expect(suggestFieldMapping("Email")).toBe("email");
       expect(suggestFieldMapping("Email Address")).toBe("email");
       expect(suggestFieldMapping("contact_email")).toBe("email");
+      expect(suggestFieldMapping("primary_email")).toBe("email");
+      expect(suggestFieldMapping("work_email")).toBe("email");
+      expect(suggestFieldMapping("e-mail")).toBe("email");
       expect(suggestFieldMapping("Email_1")).toBe("email");
     });
 

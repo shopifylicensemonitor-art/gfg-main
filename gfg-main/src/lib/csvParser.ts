@@ -135,11 +135,10 @@ export function suggestFieldMapping(header: string): string {
   
   // Target: email
   if (
-    norm === 'email' || 
-    norm.startsWith('email') ||
-    norm === 'emailaddress' || 
-    norm === 'contactemail' || 
+    norm.includes('email') || 
+    norm.includes('e-mail') || 
     norm === 'mail' || 
+    norm.endsWith('mail') || 
     norm === 'to' || 
     norm === 'recipient'
   ) {

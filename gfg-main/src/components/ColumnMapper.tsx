@@ -59,10 +59,13 @@ export function ColumnMapper({ isOpen, onClose, parsedCSV, fileName, onConfirm }
   useEffect(() => {
     if (headers.length > 0) {
       const initial: Record<string, string> = {};
+      const usedTargets = new Set<string>();
+
       headers.forEach(header => {
         const suggestion = suggestFieldMapping(header);
-        if (suggestion) {
+        if (suggestion && !usedTargets.has(suggestion)) {
           initial[header] = suggestion;
+          usedTargets.add(suggestion);
         } else {
           // Auto-map custom columns to their own normalized key
           const key = normalizeHeaderKey(header);
