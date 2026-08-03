@@ -17,20 +17,34 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 app.set('trust proxy', 1);
 
+const isLocalhost = (req) => {
+  const ip = req.ip || req.connection?.remoteAddress || '';
+  const host = req.headers?.host || '';
+  return (
+    ip === '127.0.0.1' ||
+    ip === '::1' ||
+    ip === '::ffff:127.0.0.1' ||
+    host.includes('localhost') ||
+    host.includes('127.0.0.1')
+  );
+};
+
 // Rate limiting middleware
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100,
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: isLocalhost,
   message: { error: 'Too many requests, please try again later.' }
 });
 
 const strictLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: isLocalhost,
   message: { error: 'Too many requests from this IP, please try again after 15 minutes.' }
 });
 
