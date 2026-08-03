@@ -34,6 +34,31 @@ interface GeneratedEmailsProps {
   goalInput: string;
 }
 
+export function resolveProspectUrl(entry: EmailEntry): string {
+  const fields = entry.fields || {};
+  let rawUrl = fields.store_url || fields.domain_url || fields.website || fields.domain || fields.store_name || '';
+
+  if (rawUrl && !rawUrl.includes('.') && !rawUrl.startsWith('http')) {
+    rawUrl = '';
+  }
+
+  if (!rawUrl) {
+    const firstEmail = entry.email.split(',')[0].trim();
+    const domain = firstEmail.split('@')[1]?.toLowerCase();
+    if (domain && !PUBLIC_PROVIDERS.has(domain)) {
+      rawUrl = domain;
+    }
+  }
+
+  if (!rawUrl) return '';
+
+  let url = rawUrl.trim();
+  if (!/^https?:\/\//i.test(url)) {
+    url = `https://${url}`;
+  }
+  return url;
+}
+
 // Row component for react-window v2.2.5
 interface RowProps {
   entries: EmailEntry[];
@@ -49,6 +74,7 @@ interface RowProps {
   ccRoutingMode: 'reroute' | 'normal';
   enableRandomization: boolean;
   isOverLimit: boolean;
+  actionMode?: 'email' | 'url';
 }
 
 // Helper to highlight search matches in email text
@@ -71,21 +97,37 @@ function HighlightedEmail({ email, query }: { email: string; query: string }) {
 
 const Row = memo(
   ({ index, style, ariaAttributes, ...props }: { index: number; style: CSSProperties; ariaAttributes: { "aria-posinset": number; "aria-setsize": number; role: "listitem" } } & RowProps) => {
-    const { entries, subject, body, onSendClick, userName, sentStatus, searchQuery, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization, isOverLimit } = props;
+    const { entries, subject, body, onSendClick, userName, sentStatus, searchQuery, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization, isOverLimit, actionMode = 'email' } = props;
     const entry = entries[index];
     if (!entry) return <></>;
 
     const activeListName = entry.listName || 'default';
     const isSent = !!sentStatus[`${activeListName}:${entry.email.toLowerCase()}`];
     const isValid = entry.isValid;
+    const targetUrl = resolveProspectUrl(entry);
+    const hasUrl = !!targetUrl;
 
     const handleClick = (e: React.MouseEvent) => {
-      if (!isValid || isSent) {
-        e.preventDefault();
+      e.preventDefault();
+      if (actionMode === 'url') {
+        if (!hasUrl) {
+          toast({
+            title: "No Website URL",
+            description: `No website domain found for ${entry.email}`,
+            variant: "destructive"
+          });
+          return;
+        }
+        window.open(targetUrl, '_blank');
+        toast({
+          title: "Opening Website",
+          description: `Opened ${targetUrl} in new browser tab.`
+        });
         return;
       }
+
+      if (!isValid || isSent) return;
       if (isOverLimit) {
-        e.preventDefault();
         toast({
           title: "Daily Limit Reached",
           description: "You have reached your daily sending target limit.",
@@ -93,7 +135,6 @@ const Row = memo(
         });
         return;
       }
-      e.preventDefault();
       window.location.href = mailtoLink;
       onSendClick(entry.email);
     };
@@ -153,20 +194,14 @@ const Row = memo(
         ? 'text-accent font-semibold'
         : 'text-foreground hover:text-primary transition-colors';
 
-    const LinkComponent = isValid && !isSent ? 'a' : 'div';
-
-    // Domain indicator
     const isPublic = domainPart ? PUBLIC_PROVIDERS.has(domainPart.toLowerCase()) : false;
 
     return (
       <div style={style} {...ariaAttributes} className="px-2 py-1 box-border">
-        <LinkComponent
-          href={LinkComponent === 'a' ? mailtoLink : undefined}
-          className={`group flex items-center justify-between px-3 py-2.5 rounded-xl border border-transparent transition-all duration-300 h-full animate-row-entrance ${
-            isValid && !isSent
-              ? 'cursor-pointer hover:bg-muted/15 hover:border-primary/15 hover:shadow-md hover:translate-x-[2px]'
-              : 'bg-transparent'
-          } ${isSent ? 'bg-primary/[0.01]' : ''}`}
+        <div
+          className={`group flex items-center justify-between px-3 py-2.5 rounded-xl border border-transparent transition-all duration-300 h-full animate-row-entrance cursor-pointer hover:bg-muted/15 hover:border-primary/15 hover:shadow-md hover:translate-x-[2px] ${
+            isSent ? 'bg-primary/[0.01]' : ''
+          }`}
           onClick={handleClick}
         >
           <div className="flex items-center gap-3 overflow-hidden">
@@ -206,7 +241,20 @@ const Row = memo(
             )}
           </div>
 
-          {isValid && (
+          {actionMode === 'url' ? (
+            <div className="flex items-center gap-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-300 transform translate-x-0 sm:translate-x-2 sm:group-hover:translate-x-0">
+              {hasUrl ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-[9px] font-bold text-emerald-400 border border-emerald-500/20 transition-all hover:bg-emerald-500 hover:text-white hover:shadow-lg hover:shadow-emerald-500/30 hover:scale-105 active:scale-95">
+                  Visit Site
+                  <Globe className="h-2.5 w-2.5" />
+                </span>
+              ) : (
+                <Badge variant="outline" className="text-[8px] h-5 px-1.5 text-muted-foreground/50 border-border/40">
+                  No URL
+                </Badge>
+              )}
+            </div>
+          ) : isValid ? (
             <div className="flex items-center gap-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-300 transform translate-x-0 sm:translate-x-2 sm:group-hover:translate-x-0">
               {isSent ? (
                 <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 text-[9px] h-6.5 px-2 font-bold uppercase tracking-wider animate-bounce-spring flex items-center gap-1">
@@ -220,8 +268,8 @@ const Row = memo(
                 </span>
               )}
             </div>
-          )}
-        </LinkComponent>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -248,6 +296,7 @@ export function GeneratedEmails({
   dailyCount,
   goalInput,
 }: GeneratedEmailsProps) {
+  const [actionMode, setActionMode] = useState<'email' | 'url'>('email');
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isOpeningBccBatches, setIsOpeningBccBatches] = useState(false);
   const [bccBatchQueue, setBccBatchQueue] = useState<EmailEntry[][]>([]);
@@ -563,7 +612,8 @@ export function GeneratedEmails({
     ccRoutingMode,
     enableRandomization,
     isOverLimit,
-  }), [filteredEmails, subject, body, onSendClick, userName, sentStatus, searchQuery, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization, isOverLimit]);
+    actionMode,
+  }), [filteredEmails, subject, body, onSendClick, userName, sentStatus, searchQuery, cc, bcc, myInboxTo, ccRoutingMode, enableRandomization, isOverLimit, actionMode]);
 
   const filters: { key: FilterType; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -657,6 +707,34 @@ export function GeneratedEmails({
                 ? `${filteredBatches.length} ${filteredBatches.length === 1 ? 'Batch' : 'Batches'}` 
                 : `${filteredEmails.length} ${filteredEmails.length === 1 ? 'Email' : 'Emails'}`}
             </Badge>
+
+            {/* Mode Switcher: Send Emails vs Open Store URLs */}
+            <div className="flex bg-muted/40 p-0.5 rounded-lg border border-border/20 ml-1">
+              <Button
+                variant={actionMode === 'email' ? 'secondary' : 'ghost'}
+                size="sm"
+                className={`h-6 text-[10px] px-2 rounded-md font-bold flex items-center gap-1 ${
+                  actionMode === 'email' ? 'text-primary bg-background shadow-xs' : 'text-muted-foreground hover:text-foreground'
+                }`}
+                onClick={() => setActionMode('email')}
+                title="Send outreach emails via mailto: links"
+              >
+                <Mail className="h-3 w-3 text-primary" />
+                <span>Send Emails</span>
+              </Button>
+              <Button
+                variant={actionMode === 'url' ? 'secondary' : 'ghost'}
+                size="sm"
+                className={`h-6 text-[10px] px-2 rounded-md font-bold flex items-center gap-1 ${
+                  actionMode === 'url' ? 'text-emerald-400 bg-emerald-500/10 shadow-xs' : 'text-muted-foreground hover:text-foreground'
+                }`}
+                onClick={() => setActionMode('url')}
+                title="Open prospect store/website URLs in new browser tabs"
+              >
+                <Globe className="h-3 w-3 text-emerald-400" />
+                <span>Open Store URLs</span>
+              </Button>
+            </div>
             {isOpeningBatch && batchTotal > 0 && (
               <Badge variant="outline" className="text-[10px] animate-pulse border-primary/30 text-primary">
                 Sending {batchSent}/{batchTotal}...
