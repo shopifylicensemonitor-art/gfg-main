@@ -39,14 +39,14 @@ html, body {
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    --primary: 239 84% 67%;
+    --primary: 239 84% 57%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 215 28% 17%;
     --secondary-foreground: 210 40% 98%;
 
     --muted: 220 14% 92%;
-    --muted-foreground: 215 16% 47%;
+    --muted-foreground: 215 16% 60%;
 
     --accent: 239 84% 67%;
     --accent-foreground: 0 0% 100%;
@@ -54,7 +54,7 @@ html, body {
     --destructive: 350 89% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 160 84% 39%;
+    --success: 160 84% 22%;
     --success-foreground: 0 0% 100%;
 
     --warning: 38 92% 50%;
@@ -89,14 +89,14 @@ html, body {
     --popover: 222 47% 6%;
     --popover-foreground: 210 40% 96%;
 
-    --primary: 239 84% 67%;
+    --primary: 239 84% 57%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 215 28% 17%;
     --secondary-foreground: 210 40% 98%;
 
     --muted: 217 33% 12%;
-    --muted-foreground: 215 20% 55%;
+    --muted-foreground: 215 20% 70%;
 
     --accent: 239 84% 67%;
     --accent-foreground: 210 40% 98%;
@@ -104,7 +104,7 @@ html, body {
     --destructive: 350 89% 60%;
     --destructive-foreground: 210 40% 98%;
 
-    --success: 160 84% 39%;
+    --success: 160 84% 22%;
     --success-foreground: 0 0% 100%;
 
     --warning: 38 92% 50%;
@@ -141,6 +141,12 @@ html, body {
 }
 
 /* ── Component Utilities ────────────────────────────────── */
+
+/* Accessibility overrides: map common Tailwind / utility colors to design tokens to ensure sufficient contrast */
+.text-muted-foreground { color: hsl(var(--muted-foreground)) !important; }
+.text-slate-500 { color: hsl(var(--muted-foreground)) !important; }
+.bg-emerald-500 { background-color: hsl(var(--success)) !important; }
+
 
 /* Premium glassmorphism card */
 .glass-card {
