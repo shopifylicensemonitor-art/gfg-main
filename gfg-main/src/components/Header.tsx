@@ -97,13 +97,17 @@ export const Header = memo(function Header({ canInstall, onInstall }: HeaderProp
               <Button 
                 variant="ghost" 
                 size="icon" 
+                aria-label="Open menu"
+                aria-expanded={isOpen}
+                aria-controls="nav-dialog"
+                id="nav-trigger"
                 className="h-8 w-8 rounded-xl hover:bg-muted/50 border border-border/20 text-muted-foreground hover:text-foreground relative transition-colors sm:hidden"
                 title="Open Menu"
               >
-                <Menu className="h-4.5 w-4.5" />
+                <Menu className="h-4.5 w-4.5" aria-hidden="true" />
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md border-border bg-background/95 backdrop-blur-md p-5 rounded-2xl animate-in zoom-in-95 duration-200">
+            <DialogContent id="nav-dialog" className="sm:max-w-md border-border bg-background/95 backdrop-blur-md p-5 rounded-2xl animate-in zoom-in-95 duration-200">
               <div className="space-y-4 pt-2">
                 {/* Brand Header */}
                 <div className="flex items-center gap-3 pb-3 border-b border-border/40">

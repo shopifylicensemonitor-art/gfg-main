@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useId } from 'react';
 import { suggestFieldMapping, extractEmailsAndUrlsFromCell, type ParsedCSV } from '@/lib/csvParser';
 import { Search, AlertCircle, CheckCircle2, XCircle, ChevronLeft, ChevronRight, FileSpreadsheet, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,8 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const uid = useId();
+  const bodyId = `csv-preview-body-${uid}`;
   const itemsPerPage = 10;
 
   // 1. Identify which CSV column key maps to 'email'
@@ -179,11 +181,14 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
             onClick={() => setIsCollapsed(prev => !prev)}
             className="h-8 w-8 rounded-xl hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
             title={isCollapsed ? 'Expand CSV Inspector' : 'Collapse CSV Inspector'}
+            aria-label={isCollapsed ? 'Expand CSV Inspector' : 'Collapse CSV Inspector'}
+            aria-expanded={!isCollapsed}
+            aria-controls={bodyId}
           >
             {isCollapsed ? (
-              <ChevronDown className="h-4 w-4 text-primary animate-bounce-slow" />
+              <ChevronDown className="h-4 w-4 text-primary animate-bounce-slow" aria-hidden="true" />
             ) : (
-              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              <ChevronUp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             )}
           </Button>
         </div>
@@ -191,7 +196,7 @@ export function CSVPreview({ parsedCSV, fileName, mappings = {}, onClearPreview 
 
       {/* Collapsible Content Body */}
       {!isCollapsed && (
-        <div className="space-y-4 pt-3 border-t border-border/30 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div id={bodyId} className="space-y-4 pt-3 border-t border-border/30 animate-in fade-in slide-in-from-top-2 duration-200">
 
       {/* Search & Segments Filter Controls */}
       <div className="flex flex-col md:flex-row gap-3 md:items-center justify-between">

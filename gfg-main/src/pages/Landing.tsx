@@ -159,7 +159,7 @@ export default function Landing() {
       </header>
 
       {/* Hero Section */}
-      <section className="relative pt-12 pb-16 sm:pt-20 sm:pb-24 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6 reveal-section">
+      <main id="main-content" className="relative pt-12 pb-16 sm:pt-20 sm:pb-24 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6 reveal-section">
         <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full border border-primary/20 bg-primary/5 text-primary text-xs font-semibold animate-pulse">
           <Sparkles className="h-3.5 w-3.5" />
           <span>Peak Xender — Email Outreach & Campaign Platform</span>
@@ -257,7 +257,7 @@ export default function Landing() {
             </div>
           </div>
         </div>
-      </section>
+      </main>
 
       {/* What is Peak Xender — App Purpose Section (Google OAuth Verification) */}
       <section id="about" className="py-16 sm:py-20 bg-gradient-to-b from-slate-950 to-slate-900 border-y border-slate-900/60 relative reveal-section">
@@ -441,8 +441,9 @@ export default function Landing() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-400">2. Subject Line Template:</label>
+              <label htmlFor="demo-subject" className="text-xs font-semibold text-slate-400">2. Subject Line Template:</label>
               <input
+                id="demo-subject"
                 type="text"
                 value={demoSubject}
                 onChange={e => setDemoSubject(e.target.value)}
@@ -451,8 +452,9 @@ export default function Landing() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-400">3. Body Template:</label>
+              <label htmlFor="demo-body" className="text-xs font-semibold text-slate-400">3. Body Template:</label>
               <textarea
+                id="demo-body"
                 value={demoBody}
                 onChange={e => setDemoBody(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-primary font-mono h-32 resize-none"

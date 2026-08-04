@@ -235,6 +235,36 @@ html, body {
 }
 
 /* ── Confetti animation ─────────────────────────────────── */
+
+/* Skip link visible on focus */
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  z-index: 9999;
+  transform: translateY(-10px);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  opacity: 0;
+}
+.skip-link:focus {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @keyframes confetti-fall {
   0% {
     transform: translateY(0) rotate(0deg);

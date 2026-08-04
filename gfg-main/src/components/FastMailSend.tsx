@@ -308,8 +308,14 @@ export function FastMailSend({
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-muted/40 text-muted-foreground hover:text-foreground">
-                <MoreVertical className="h-4 w-4" />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg hover:bg-muted/40 text-muted-foreground hover:text-foreground"
+                aria-label="Open actions menu"
+                aria-haspopup="true"
+              >
+                <MoreVertical className="h-4 w-4" aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 border-border bg-popover/95 backdrop-blur-md rounded-xl shadow-lg">
