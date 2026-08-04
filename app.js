@@ -6,6 +6,20 @@
 
 require('dotenv').config();
 
+// Ensure AI_ENCRYPTION_KEY is set in production to protect stored API keys.
+if (process.env.NODE_ENV === 'production' && !process.env.AI_ENCRYPTION_KEY) {
+  console.error('FATAL: AI_ENCRYPTION_KEY environment variable is required in production. Set AI_ENCRYPTION_KEY to a strong secret (use a KMS or env secret).');
+  process.exit(1);
+}
+
+if (!process.env.AI_ENCRYPTION_KEY) {
+  if (!process.env.JWT_SECRET) {
+    console.warn('Warning: AI_ENCRYPTION_KEY and JWT_SECRET are both missing. Using dev fallbacks which are insecure.');
+  } else {
+    console.warn('Warning: AI_ENCRYPTION_KEY not set; falling back to JWT_SECRET for key material. This is not recommended in production.');
+  }
+}
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -18,14 +32,12 @@ const app = express();
 app.set('trust proxy', 1);
 
 const isLocalhost = (req) => {
-  const ip = req.ip || req.connection?.remoteAddress || '';
-  const host = req.headers?.host || '';
+  const ip = req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress || '';
+  const normalizedIp = ip.replace(/^::ffff:/, '');
+
   return (
-    ip === '127.0.0.1' ||
-    ip === '::1' ||
-    ip === '::ffff:127.0.0.1' ||
-    host.includes('localhost') ||
-    host.includes('127.0.0.1')
+    normalizedIp === '127.0.0.1' ||
+    normalizedIp === '::1'
   );
 };
 

@@ -1,5 +1,5 @@
-/**
- * routes/ai.js — Universal OpenAI-compatible AI API router for Peak Xender.
+﻿/**
+ * routes/ai.js â€” Universal OpenAI-compatible AI API router for Peak Xender.
  *
  * Supports 10+ providers (OpenRouter, Nvidia NIM, OpenAI, Gemini, Groq, DeepSeek, Together, Ollama, etc.)
  * by communicating with standard OpenAI-compatible `/v1/chat/completions` endpoints.
@@ -10,30 +10,45 @@ const router = express.Router();
 const { getDb } = require('../db');
 const logger = require('../logger');
 
-// Simple symmetric obfuscation/encryption helper for API keys stored in DB
-const SECRET_SALT = process.env.JWT_SECRET || 'peakxender-ai-key-salt';
+// Secure AES-256-GCM encryption helpers for API keys stored in DB
+const crypto = require('crypto');
+// Use an explicit env var for the encryption key if provided, otherwise fall back to JWT_SECRET for compatibility.
+// In production, set AI_ENCRYPTION_KEY (a strong secret) to avoid relying on JWT_SECRET.
+const KEY_SOURCE = process.env.AI_ENCRYPTION_KEY || process.env.JWT_SECRET || 'dev-fallback-ai-encryption-key';
+const MASTER_KEY = crypto.createHash('sha256').update(String(KEY_SOURCE)).digest(); // 32 bytes
+
 function encryptKey(key) {
   if (!key) return '';
-  const buf = Buffer.from(key, 'utf-8');
-  const saltBuf = Buffer.from(SECRET_SALT, 'utf-8');
-  const out = Buffer.alloc(buf.length);
-  for (let i = 0; i < buf.length; i++) {
-    out[i] = buf[i] ^ saltBuf[i % saltBuf.length];
+  try {
+    const iv = crypto.randomBytes(12); // 96-bit nonce for GCM
+    const cipher = crypto.createCipheriv('aes-256-gcm', MASTER_KEY, iv);
+    const encrypted = Buffer.concat([cipher.update(Buffer.from(key, 'utf-8')), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    // Store as: ENC:<ivHex>:<tagHex>:<cipherHex>
+    return `ENC:${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+  } catch (err) {
+    logger.error({ err }, 'encryptKey failed');
+    return '';
   }
-  return 'ENC:' + out.toString('hex');
 }
 
 function decryptKey(encKey) {
   if (!encKey) return '';
-  if (!encKey.startsWith('ENC:')) return encKey; // Fallback plain text if legacy
-  const hexStr = encKey.slice(4);
-  const buf = Buffer.from(hexStr, 'hex');
-  const saltBuf = Buffer.from(SECRET_SALT, 'utf-8');
-  const out = Buffer.alloc(buf.length);
-  for (let i = 0; i < buf.length; i++) {
-    out[i] = buf[i] ^ saltBuf[i % saltBuf.length];
+  if (!encKey.startsWith('ENC:')) return encKey; // legacy plain text
+  try {
+    const parts = encKey.split(':');
+    if (parts.length !== 4) return '';
+    const iv = Buffer.from(parts[1], 'hex');
+    const tag = Buffer.from(parts[2], 'hex');
+    const cipherText = Buffer.from(parts[3], 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', MASTER_KEY, iv);
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([decipher.update(cipherText), decipher.final()]);
+    return decrypted.toString('utf-8');
+  } catch (err) {
+    logger.error({ err }, 'decryptKey failed');
+    return '';
   }
-  return out.toString('utf-8');
 }
 
 function maskKey(key) {
@@ -84,13 +99,18 @@ async function callAI(messages, systemOverride = null) {
   const endpointUrl = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
   const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
+  
+
+    // Build headers explicitly and safely
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${config.apiKey}`,
+    ...(config.provider === 'openrouter' ? { 'HTTP-Referer': 'https://send.peakconix.site', 'X-Title': 'Peak Xender' } : {})
+  };
+
   const res = await fetch(endpointUrl, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`,
-      ...(config.provider === 'openrouter' ? { 'HTTP-Referer': 'https://send.peakconix.site', 'X-Title': 'Peak Xender' } : {})
-    },
+    headers,
     body: JSON.stringify({
       model: config.model || 'openai/gpt-4o-mini',
       messages: fullMessages,
@@ -120,7 +140,7 @@ async function callAI(messages, systemOverride = null) {
 // Configuration Routes
 // ---------------------------------------------------------------------------
 
-/** GET /api/ai/config — Retrieve current AI config (masked key) */
+/** GET /api/ai/config â€” Retrieve current AI config (masked key) */
 router.get('/config', async (_req, res) => {
   try {
     const config = await getActiveAIConfig();
@@ -139,7 +159,7 @@ router.get('/config', async (_req, res) => {
   }
 });
 
-/** POST /api/ai/config — Save/update AI provider config */
+/** POST /api/ai/config â€” Save/update AI provider config */
 router.post('/config', async (req, res) => {
   const { provider, apiKey, baseUrl, model } = req.body;
   if (!apiKey) {
@@ -167,7 +187,7 @@ router.post('/config', async (req, res) => {
   }
 });
 
-/** POST /api/ai/test — Test the AI connection */
+/** POST /api/ai/test â€” Test the AI connection */
 router.post('/test', async (_req, res) => {
   try {
     const response = await callAI([
@@ -183,7 +203,7 @@ router.post('/test', async (_req, res) => {
 // AI Stage Rules & Knowledge Base Routes
 // ---------------------------------------------------------------------------
 
-/** GET /api/ai/rules — Get all AI stage rules */
+/** GET /api/ai/rules â€” Get all AI stage rules */
 router.get('/rules', async (_req, res) => {
   try {
     const db = await getDb();
@@ -196,7 +216,7 @@ router.get('/rules', async (_req, res) => {
   }
 });
 
-/** POST /api/ai/rules — Save or update AI stage rules */
+/** POST /api/ai/rules â€” Save or update AI stage rules */
 router.post('/rules', async (req, res) => {
   const { rules } = req.body;
   if (!rules || typeof rules !== 'object') {
@@ -225,7 +245,7 @@ router.post('/rules', async (req, res) => {
 // AI Features (Generator, Rewriter, Spintax, Subjects, Reply Draft)
 // ---------------------------------------------------------------------------
 
-/** POST /api/ai/generate — Generate email content from a prompt */
+/** POST /api/ai/generate â€” Generate email content from a prompt */
 router.post('/generate', async (req, res) => {
   const { prompt, stage = 'initial', contactFields = {} } = req.body;
   if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
@@ -254,7 +274,7 @@ router.post('/generate', async (req, res) => {
   }
 });
 
-/** POST /api/ai/rewrite — Rewrite or improve existing email copy */
+/** POST /api/ai/rewrite â€” Rewrite or improve existing email copy */
 router.post('/rewrite', async (req, res) => {
   const { subject, body, instruction = 'Improve readability, deliverability, and urgency' } = req.body;
   if (!body) return res.status(400).json({ error: 'Email body is required.' });
@@ -279,7 +299,7 @@ router.post('/rewrite', async (req, res) => {
   }
 });
 
-/** POST /api/ai/spintax — Convert flat text to spintax format {hi|hello|hey} */
+/** POST /api/ai/spintax â€” Convert flat text to spintax format {hi|hello|hey} */
 router.post('/spintax', async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: 'Text is required.' });
@@ -297,7 +317,7 @@ router.post('/spintax', async (req, res) => {
   }
 });
 
-/** POST /api/ai/subjects — Generate subject line variants for A/B testing */
+/** POST /api/ai/subjects â€” Generate subject line variants for A/B testing */
 router.post('/subjects', async (req, res) => {
   const { body, count = 5 } = req.body;
   if (!body) return res.status(400).json({ error: 'Email body context is required.' });
@@ -325,7 +345,7 @@ router.post('/subjects', async (req, res) => {
   }
 });
 
-/** POST /api/ai/reply-draft — Generate AI response to an incoming prospect reply */
+/** POST /api/ai/reply-draft â€” Generate AI response to an incoming prospect reply */
 router.post('/reply-draft', async (req, res) => {
   const { incomingSubject, incomingBody, senderEmail, contactFields = {} } = req.body;
   if (!incomingBody) return res.status(400).json({ error: 'Incoming email body is required.' });
@@ -347,3 +367,5 @@ router.post('/reply-draft', async (req, res) => {
 });
 
 module.exports = router;
+
+
