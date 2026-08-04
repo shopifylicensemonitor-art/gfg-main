@@ -2,12 +2,36 @@ import { chromium } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 import fs from 'fs';
 
-const base = process.env.BASE_URL || 'http://localhost:5173';
-const pages = ['/', '/send', '/dashboard'];
+const base = process.env.BASE_URL || 'http://localhost:8080';
+const pages = [
+  '/',
+  '/login',
+  '/about',
+  '/contact',
+  '/help',
+  '/privacy',
+  '/terms',
+  '/blog',
+  '/blog/sample-post',
+  '/send',
+  '/dashboard',
+  '/tracker',
+  '/accounts',
+  '/campaigns',
+  '/templates',
+  '/contacts',
+  '/logs',
+  '/ai-settings',
+  '/inbox',
+  '/not-found'
+];
 
 async function run() {
   const browser = await chromium.launch();
   const ctx = await browser.newContext();
+  await ctx.addInitScript(() => {
+    window.localStorage.setItem('auth_token', 'accessibility-test-token');
+  });
   const results = {};
   for (const p of pages) {
     const page = await ctx.newPage();
