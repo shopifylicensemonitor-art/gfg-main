@@ -1,4 +1,4 @@
-/**
+﻿/**
  * routes/ai.js — Universal OpenAI-compatible AI API router for Peak Xender.
  *
  * Supports 10+ providers (OpenRouter, Nvidia NIM, OpenAI, Gemini, Groq, DeepSeek, Together, Ollama, etc.)
@@ -84,22 +84,25 @@ async function callAI(messages, systemOverride = null) {
   const endpointUrl = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
   const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
-  const res = await fetch(endpointUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`,
-      ...(config.provider === 'openrouter' ? { 'HTTP-Referer': 'https://send.peakconix.site', 'X-Title': 'Peak Xender' } : {})
-    },
-    body: JSON.stringify({
-      model: config.model || 'openai/gpt-4o-mini',
-      messages: fullMessages,
-      temperature: 0.7,
-      max_tokens: 1500,
-    })
-  });
+const headers = {
+  'Content-Type': 'application/json',
+  'Authorization': 'Bearer ' + config.apiKey
+};
+if (config.provider === 'openrouter') {
+  headers['Referer'] = 'https://send.peakconix.site';
+  headers['X-Title'] = 'Peak Xender';
+}
 
-  if (!res.ok) {
+const res = await fetch(endpointUrl, {
+  method: 'POST',
+  headers,
+  body: JSON.stringify({
+    model: config.model || 'openai/gpt-4o-mini',
+    messages: fullMessages,
+    temperature: 0.7,
+    max_tokens: 1500,
+  })
+});if (!res.ok) {
     let errText = await res.text();
     try {
       const parsed = JSON.parse(errText);
@@ -347,3 +350,6 @@ router.post('/reply-draft', async (req, res) => {
 });
 
 module.exports = router;
+
+
+

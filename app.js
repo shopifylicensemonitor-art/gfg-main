@@ -63,7 +63,12 @@ const corsOptions = {
     if (isLocalhost || isLocalNetwork || isAllowedWeb) {
       callback(null, true);
     } else {
-      callback(null, true); // Allow requests flexibly in serverless
+      // In production, reject unknown origins. In development/serverless, allow for convenience.
+      if (process.env.NODE_ENV === 'production') {
+        callback(new Error('Not allowed by CORS'));
+      } else {
+        callback(null, true);
+      }
     }
   },
   credentials: true

@@ -80,9 +80,26 @@ async function ensureFreshToken(account) {
  * Create a Nodemailer transport from an SMTP account row.
  */
 function createSmtpTransport(account) {
-  // If account object has an id, cache the transport to reuse connections
+  const key = account && account.id ? String(account.id) : null;
+
+  // Development mock transport: when DEV_MOCK_SMTP=true and not in production,
+  // return a lightweight mock that mimics nodemailer transport behavior.
+  if (process.env.NODE_ENV !== 'production' && process.env.DEV_MOCK_SMTP === 'true') {
+    const mock = {
+      verify: async () => true,
+      sendMail: async (opts) => {
+        const info = { accepted: [opts.to], messageId: 'mock-' + Date.now(), response: '250 Ok (mock)'};
+        // Keep a minimal console log so local developers can see simulated sends
+        try { console.log('DEV_MOCK_SMTP sendMail', { to: opts.to, subject: opts.subject }); } catch (e) {}
+        return info;
+      }
+    };
+    if (key) transportCache.set(key, mock);
+    return mock;
+  }
+
+  // Production / normal behavior: create real nodemailer transport (with caching)
   try {
-    const key = account && account.id ? String(account.id) : null;
     if (key && transportCache.has(key)) return transportCache.get(key);
 
     const transport = nodemailer.createTransport({
@@ -454,7 +471,7 @@ router.post('/smtp', async (req, res) => {
   }
 
   try {
-    // Verify the connection before saving
+    // Create transport (and in production/dev-mock mode optionally verify connection)
     const transport = nodemailer.createTransport({
       host: smtp_host,
       port: smtp_port || 587,
@@ -462,7 +479,10 @@ router.post('/smtp', async (req, res) => {
       auth: { user: smtp_user, pass: smtp_pass },
     });
 
-    await transport.verify();
+    // In development, when DEV_MOCK_SMTP=true, skip remote SMTP verification so local testing can proceed.
+    if (!(process.env.NODE_ENV !== 'production' && process.env.DEV_MOCK_SMTP === 'true')) {
+      await transport.verify();
+    }
 
     const db = await getDb();
     const existing = await db.prepare('SELECT id FROM accounts WHERE email = ?').get(email);
