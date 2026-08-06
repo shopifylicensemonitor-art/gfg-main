@@ -180,6 +180,7 @@ CREATE TABLE IF NOT EXISTS inbox_messages (
   body_html TEXT,
   sentiment TEXT DEFAULT 'neutral',
   is_read INTEGER DEFAULT 0,
+  message_id TEXT UNIQUE,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -198,6 +199,9 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS imap_secure INTEGER DEFAULT 1;
 ALTER TABLE queue ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;
 ALTER TABLE queue ADD COLUMN IF NOT EXISTS step_number INTEGER DEFAULT 1;
 ALTER TABLE queue ADD COLUMN IF NOT EXISTS campaign_step_id INTEGER;
+
+ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS message_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_message_id ON inbox_messages(message_id);
 
 ALTER TABLE logs ADD COLUMN IF NOT EXISTS queue_id INTEGER;
 

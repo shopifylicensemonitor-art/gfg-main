@@ -517,7 +517,7 @@ const SQLITE_DDL = `
     body_html TEXT,
     sentiment TEXT DEFAULT 'neutral',
     is_read INTEGER DEFAULT 0,
-    message_id TEXT,
+    message_id TEXT UNIQUE,
     created_at TEXT DEFAULT (datetime('now'))
   );
 `;
@@ -702,6 +702,7 @@ ready = (async () => {
     CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_inbox_recipient ON inbox_messages(recipient_email);
     CREATE INDEX IF NOT EXISTS idx_inbox_created_at ON inbox_messages(created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_message_id ON inbox_messages(message_id);
   `;
 
   if (usePg) {
@@ -729,7 +730,10 @@ ready = (async () => {
         await adapter.exec("ALTER TABLE queue ADD COLUMN IF NOT EXISTS campaign_step_id INTEGER;");
       } catch (_) {}
       try {
-        await adapter.exec("ALTER TABLE logs ADD COLUMN IF NOT EXISTS queue_id INTEGER;");
+        await adapter.exec("ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS message_id TEXT;");
+      } catch (_) {}
+      try {
+        await adapter.exec("DELETE FROM inbox_messages WHERE id NOT IN (SELECT MIN(id) FROM inbox_messages GROUP BY message_id) AND message_id IS NOT NULL;");
       } catch (_) {}
       try {
         await adapter.exec(INDEX_DDL);
@@ -778,6 +782,12 @@ ready = (async () => {
     } catch (_) {}
     try {
       await wrapped.exec("ALTER TABLE campaigns ADD COLUMN send_order TEXT DEFAULT 'series';");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS message_id TEXT;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("DELETE FROM inbox_messages WHERE rowid NOT IN (SELECT MIN(rowid) FROM inbox_messages GROUP BY message_id) AND message_id IS NOT NULL;");
     } catch (_) {}
     try {
       await wrapped.exec("ALTER TABLE campaigns ADD COLUMN body_plain TEXT;");
