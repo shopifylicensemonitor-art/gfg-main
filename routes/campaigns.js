@@ -86,6 +86,15 @@ function resolveLaunchRecipientPlan({ existingQueueRows = [], recipients = [], c
 router.createDefaultCampaignContent = createDefaultCampaignContent;
 router.resolveLaunchRecipientPlan = resolveLaunchRecipientPlan;
 
+function shuffleArray(array) {
+  const copy = Array.isArray(array) ? [...array] : [];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 /** List all campaigns. */
 router.get('/', async (_req, res) => {
   try {
@@ -149,6 +158,7 @@ router.post('/', async (req, res) => {
     contact_list, delay_seconds = 30,
     start_time = '08:00', end_time = '22:00',
     content_variations, content_mode = 'single',
+    send_order = 'series',
     steps
   } = req.body;
 
@@ -171,18 +181,18 @@ router.post('/', async (req, res) => {
         INSERT INTO campaigns
           (name, subject, body_html, body_plain, contact_list,
            delay_seconds, start_time, end_time, total_contacts,
-           content_variations, content_mode)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           content_variations, content_mode, send_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         name, content.subject, content.body_html, content.body_plain,
         resolvedContactList, delay_seconds, start_time, end_time,
         countRow ? countRow.total : 0,
         content_variations ? JSON.stringify(content_variations) : null,
-        content_mode
+        content_mode,
+        send_order
       );
 
       const campaignId = result.lastInsertRowid;
-
       if (steps && Array.isArray(steps)) {
         for (const step of steps) {
           await txDb.prepare(`
@@ -191,6 +201,7 @@ router.post('/', async (req, res) => {
           `).run(campaignId, step.step_number, step.subject, step.body_html || '', step.body_plain || '', step.delay_seconds || 86400);
         }
       }
+
       return campaignId;
     });
 
@@ -213,7 +224,7 @@ router.put('/:id', async (req, res) => {
     const fields = req.body;
     const allowed = [
       'name', 'subject', 'body_html', 'body_plain', 'contact_list',
-      'delay_seconds', 'start_time', 'end_time', 'content_variations', 'content_mode',
+      'delay_seconds', 'start_time', 'end_time', 'content_variations', 'content_mode', 'send_order',
     ];
 
     const updates = [];
@@ -312,6 +323,7 @@ router.post('/create-from-csv', async (req, res) => {
     delay_seconds = 30,
     start_time = '08:00',
     end_time = '22:00',
+    send_order = 'series',
   } = req.body;
 
   if (!name || recipients.length === 0) {
@@ -356,9 +368,9 @@ router.post('/create-from-csv', async (req, res) => {
     const createFromCsvTx = db.transaction(async (txDb) => {
       const result = await txDb.prepare(`
         INSERT INTO campaigns
-          (name, subject, body_html, body_plain, contact_list, status, delay_seconds, start_time, end_time, total_contacts)
-        VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
-      `).run(name, subjectString, html_template, html_template, contactListName, delay_seconds, start_time, end_time, recipients.length);
+          (name, subject, body_html, body_plain, contact_list, status, delay_seconds, start_time, end_time, total_contacts, send_order)
+        VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)
+      `).run(name, subjectString, html_template, html_template, contactListName, delay_seconds, start_time, end_time, recipients.length, send_order);
 
       const campaignId = result.lastInsertRowid;
 
@@ -366,8 +378,10 @@ router.post('/create-from-csv', async (req, res) => {
       const now = new Date();
       let currentScheduledTime = now.getTime();
 
-      for (let index = 0; index < recipients.length; index++) {
-        const recipient = recipients[index];
+      const orderedRecipients = send_order === 'random' ? shuffleArray(recipients) : recipients;
+
+      for (let index = 0; index < orderedRecipients.length; index++) {
+        const recipient = orderedRecipients[index];
         const recipEmail = recipient.email || '';
         if (!recipEmail) continue;  // Skip rows without email
 
@@ -433,7 +447,7 @@ router.post('/:id/launch', async (req, res) => {
 
     // Get contacts for this campaign's list
     const contacts = await db.prepare(
-      'SELECT email, fields FROM contacts WHERE list_name = ?'
+      'SELECT email, fields FROM contacts WHERE list_name = ? ORDER BY id ASC'
     ).all(campaign.contact_list);
 
     const existingQueueRows = await db.prepare(
@@ -444,6 +458,10 @@ router.post('/:id/launch', async (req, res) => {
       recipients: req.body.recipients || req.body.contacts || [],
       contacts,
     });
+
+    if (!plan.useExistingQueue && campaign.send_order === 'random') {
+      plan.recipients = shuffleArray(plan.recipients);
+    }
 
     if (!plan.recipients || plan.recipients.length === 0) {
       return res.status(400).json({ error: 'No recipients available for launch. Add contacts or provide recipients in the request.' });

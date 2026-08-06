@@ -48,6 +48,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
   const [editDelay, setEditDelay] = useState<number>(30);
   const [editStartTime, setEditStartTime] = useState<string>('08:00');
   const [editEndTime, setEditEndTime] = useState<string>('22:00');
+  const [editSendOrder, setEditSendOrder] = useState<'series' | 'random'>('series');
   const [savingEdit, setSavingEdit] = useState<boolean>(false);
 
   // Form State
@@ -60,6 +61,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
   const [speed, setSpeed] = useState<number>(30);
   const [startTime, setStartTime] = useState<string>('08:00');
   const [endTime, setEndTime] = useState<string>('22:00');
+  const [sendOrder, setSendOrder] = useState<'series' | 'random'>('series');
 
   // Rotation states
   const [contentMode, setContentMode] = useState<'single' | 'rotation'>('single');
@@ -214,6 +216,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
           delay_seconds: speed,
           start_time: startTime,
           end_time: endTime,
+          send_order: sendOrder,
           content_mode: contentMode,
           content_variations: contentMode === 'rotation' ? (variations as any) : null
         });
@@ -266,6 +269,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
         setSpeed(30);
         setStartTime('08:00');
         setEndTime('22:00');
+        setSendOrder('series');
         setContentMode('single');
         setVariations([{ subject: '', body_html: '' }]);
         loadData();
@@ -456,6 +460,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
     setEditDelay(c.delay_seconds || 30);
     setEditStartTime(c.start_time || '08:00');
     setEditEndTime(c.end_time || '22:00');
+    setEditSendOrder(c.send_order || 'series');
     setEditContentMode(c.content_mode || 'single');
 
     let parsed: { subject: string; body_html: string }[] = [];
@@ -487,6 +492,7 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
         delay_seconds: editDelay,
         start_time: editStartTime,
         end_time: editEndTime,
+        send_order: editSendOrder,
         content_mode: editContentMode,
         content_variations: editContentMode === 'rotation' ? (editVariations as any) : null,
       });
@@ -854,6 +860,37 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                     className="w-full bg-muted text-xs sm:text-sm rounded-xl border border-input px-3.5 py-2 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Dispatch Order</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSendOrder('series')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
+                      sendOrder === 'series'
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border/40 hover:bg-muted/40 text-muted-foreground'
+                    }`}
+                  >
+                    Series
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSendOrder('random')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
+                      sendOrder === 'random'
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border/40 hover:bg-muted/40 text-muted-foreground'
+                    }`}
+                  >
+                    Random
+                  </button>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Series follows the stored recipient order; random shuffles recipients before queue population.
+                </p>
               </div>
 
               {/* Submit Buttons */}
@@ -1391,18 +1428,33 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2.5 pt-3 border-t border-border">
-                <Button type="button" variant="outline" onClick={() => setEditingCampaign(null)} className="text-xs">
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={savingEdit} className="text-xs font-semibold">
-                  {savingEdit ? 'Saving Updates...' : 'Save Campaign Changes'}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </AppShell>
-  );
-}
+                <div className="space-y-2">
+                  <label className="block font-semibold text-muted-foreground uppercase text-[10px]">Dispatch Order</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditSendOrder('series')}
+                      className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
+                        editSendOrder === 'series'
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border/40 hover:bg-muted/40 text-muted-foreground'
+                      }`}
+                    >
+                      Series
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditSendOrder('random')}
+                      className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
+                        editSendOrder === 'random'
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border/40 hover:bg-muted/40 text-muted-foreground'
+                      }`}
+                    >
+                      Random
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    Series follows the stored recipient order; random shuffles before queue population.
+                  </p>
+                </div>

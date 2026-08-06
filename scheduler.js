@@ -579,7 +579,12 @@ async function logEvent(db, campaignId, accountId, recipient, status, message, q
 // Cron: every 30 seconds
 // ---------------------------------------------------------------------------
 
-const schedulerEnabled = process.env.NODE_ENV === 'production' || process.env.ENABLE_SCHEDULER === 'true';
+const schedulerDisabled = process.env.DISABLE_SCHEDULER === 'true';
+const schedulerEnabled = !schedulerDisabled && (
+  process.env.NODE_ENV === 'production' ||
+  process.env.ENABLE_SCHEDULER === 'true' ||
+  process.env.NODE_ENV !== 'production'
+);
 let sendTask;
 let resetTask;
 
@@ -607,7 +612,7 @@ if (schedulerEnabled) {
 } else {
   sendTask = { stop: () => {} };
   resetTask = { stop: () => {} };
-  logger.info('Email worker is disabled in local development. Set NODE_ENV=production or ENABLE_SCHEDULER=true to enable it.');
+  logger.info('Email worker is disabled. Set DISABLE_SCHEDULER=false or remove the flag to enable it.');
 }
 
 function stopScheduler() {

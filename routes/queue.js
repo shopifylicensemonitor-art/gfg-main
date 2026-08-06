@@ -35,6 +35,39 @@ router.get('/logs/recent', async (req, res) => {
   }
 });
 
+/** Get queue diagnostics for the current system. */
+router.get('/diagnostics', async (_req, res) => {
+  try {
+    const db = await getDb();
+    const summary = await db.prepare(`
+      SELECT
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+        SUM(CASE WHEN status = 'sending' THEN 1 ELSE 0 END) AS sending,
+        SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+      FROM queue
+    `).get();
+
+    const recentFailures = await db.prepare(`
+      SELECT q.id, q.campaign_id, q.recipient_email, q.error, q.status, q.updated_at,
+             c.name AS campaign_name
+      FROM queue q
+      LEFT JOIN campaigns c ON c.id = q.campaign_id
+      WHERE q.status = 'failed'
+      ORDER BY q.updated_at DESC
+      LIMIT 10
+    `).all();
+
+    res.json({
+      summary: summary || { pending: 0, sending: 0, sent: 0, failed: 0 },
+      recentFailures,
+      schedulerEnabled: process.env.NODE_ENV === 'production' || process.env.ENABLE_SCHEDULER === 'true' || process.env.NODE_ENV !== 'production',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /** Get queue items for a specific campaign. */
 router.get('/:campaignId', async (req, res) => {
   const status = req.query.status; // optional filter

@@ -403,6 +403,7 @@ const SQLITE_DDL = `
     failed_count INTEGER DEFAULT 0,
     content_variations TEXT,
     content_mode TEXT DEFAULT 'single',
+    send_order TEXT DEFAULT 'series',
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -773,6 +774,9 @@ ready = (async () => {
     } catch (_) {}
     try {
       await wrapped.exec("ALTER TABLE campaigns ADD COLUMN content_mode TEXT DEFAULT 'single';");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE campaigns ADD COLUMN send_order TEXT DEFAULT 'series';");
     } catch (_) {}
     try {
       await wrapped.exec("ALTER TABLE campaigns ADD COLUMN body_plain TEXT;");

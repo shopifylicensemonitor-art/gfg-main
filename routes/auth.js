@@ -15,9 +15,16 @@ const { google } = require('googleapis');
 const { getDb } = require('../db');
 const logger = require('../logger');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'peakxender-dev-secret-change-me';
+const JWT_SECRET = process.env.JWT_SECRET || null;
 const JWT_EXPIRY = '7d';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
+
+function getJwtSecret() {
+  if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET must be configured to issue and verify JWTs.');
+  }
+  return JWT_SECRET;
+}
 
 function getLoginOAuth2Client() {
   return new google.auth.OAuth2(
@@ -49,7 +56,11 @@ router.get('/google-url', (_req, res) => {
 /** PIN-based login endpoint for quick local/dev authentication. */
 router.post('/pin-login', async (req, res) => {
   const { pin } = req.body;
-  const configuredPin = process.env.ACCESS_PIN || '1234';
+  const configuredPin = process.env.ACCESS_PIN || null;
+
+  if (!configuredPin) {
+    return res.status(401).json({ error: 'PIN login is not configured. Please set ACCESS_PIN in your environment.' });
+  }
 
   if (!pin || String(pin) !== String(configuredPin)) {
     return res.status(401).json({ error: 'Invalid PIN. Please check ACCESS_PIN in your .env file.' });
@@ -58,7 +69,7 @@ router.post('/pin-login', async (req, res) => {
   try {
     const token = jwt.sign(
       { id: 'admin-pin', email: process.env.ADMIN_EMAIL || 'admin@local', name: 'Admin (PIN)', role: 'admin' },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: JWT_EXPIRY }
     );
 
@@ -112,7 +123,7 @@ router.get('/callback', async (req, res) => {
     // Issue JWT
     const token = jwt.sign(
       { id: user.id, email: user.email, name: user.name, role: user.role },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: JWT_EXPIRY }
     );
 
@@ -134,7 +145,7 @@ router.get('/me', async (req, res) => {
 
   try {
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret());
     res.json({
       id: decoded.id,
       email: decoded.email,
@@ -155,7 +166,7 @@ router.post('/profile', async (req, res) => {
 
   try {
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret());
     const { name, picture } = req.body;
 
     if (!name) {

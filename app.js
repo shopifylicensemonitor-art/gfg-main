@@ -63,22 +63,40 @@ const strictLimiter = rateLimit({
 // ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
-const allowedOrigin = process.env.FRONTEND_ORIGIN || 'https://send.peakconix.site';
+const allowedOrigins = [
+  'https://send.peakconix.site',
+  'https://peak-x-sender-v3-test.netlify.app',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+];
+
+const configuredOrigin = process.env.FRONTEND_ORIGIN || '';
+if (configuredOrigin) {
+  allowedOrigins.push(configuredOrigin);
+}
+
 const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
     const isLocalhost = /^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
     const isLocalNetwork = /^http:\/\/(?:192\.168|10|172\.(?:1[6-9]|2\d|3[0-1])|169\.254)\.\d+\.\d+(:\d+)?$/.test(origin);
-    const isAllowedWeb = origin === 'https://send.peakconix.site' || origin === 'https://peak-x-sender-v3-test.netlify.app' || origin === allowedOrigin;
-    
-    if (isLocalhost || isLocalNetwork || isAllowedWeb) {
-      callback(null, true);
-    } else {
-      callback(null, true); // Allow requests flexibly in serverless
+
+    if (isLocalhost || isLocalNetwork) {
+      return callback(null, true);
     }
+
+    return callback(new Error(`Origin not allowed by CORS: ${origin}`));
   },
-  credentials: true
+  credentials: true,
 };
 app.use(cors(corsOptions));
 

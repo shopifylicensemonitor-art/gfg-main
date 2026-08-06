@@ -8,7 +8,7 @@
 const jwt = require('jsonwebtoken');
 const logger = require('../logger');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'peakxender-dev-secret-change-me';
+const JWT_SECRET = process.env.JWT_SECRET || null;
 
 /**
  * Middleware that accepts EITHER a valid JWT Bearer token
@@ -24,20 +24,22 @@ function requireAuth(req, res, next) {
   // Try JWT Bearer token
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
+    if (!JWT_SECRET) {
+      return res.status(401).json({ error: 'Unauthorized. JWT authentication is not configured.' });
+    }
+
     try {
       const token = authHeader.split(' ')[1];
       const decoded = jwt.verify(token, JWT_SECRET);
       req.user = decoded;
       return next();
     } catch (_) {
-      // Token is invalid or expired; fall through to check PIN fallback below
+      return res.status(401).json({ error: 'Unauthorized. Invalid or expired token.' });
     }
   }
 
-  // Allow a simple PIN fallback for local/dev usage. The PIN can be provided
-  // either via ?pin= query parameter or the `X-Access-Pin` header. This keeps
-  // the app usable without full OAuth during local development.
-  const configuredPin = process.env.ACCESS_PIN || '1234';
+  // Allow PIN auth only when explicitly configured.
+  const configuredPin = process.env.ACCESS_PIN || null;
   const providedPin = (req.query && req.query.pin) || req.headers['x-access-pin'];
 
   // Debug logging to help trace local dev auth issues (do not log PINs in prod)
@@ -47,13 +49,13 @@ function requireAuth(req, res, next) {
     } catch (_) { /* ignore logging failures */ }
   }
 
-  if (providedPin && String(providedPin) === String(configuredPin)) {
+  if (configuredPin && providedPin && String(providedPin) === String(configuredPin)) {
     // Mark a minimal user context so downstream handlers can rely on `req.user`.
     req.user = { id: 'pin', email: 'local-pin', role: 'admin' };
     return next();
   }
 
-  return res.status(401).json({ error: 'Unauthorized. Provide a valid JWT token.' });
+  return res.status(401).json({ error: 'Unauthorized. Provide a valid JWT token or configured PIN.' });
 }
 
 module.exports = { requireAuth };

@@ -81,6 +81,7 @@ export interface Campaign {
   failed_count: number;
   content_variations: string | null;
   content_mode: 'single' | 'rotation';
+  send_order?: 'series' | 'random';
   created_at: string;
   queue_stats?: {
     pending?: number;

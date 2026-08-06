@@ -55,6 +55,7 @@ const DDL = `
     failed_count INTEGER DEFAULT 0,
     content_variations TEXT,
     content_mode TEXT DEFAULT 'single',
+    send_order TEXT DEFAULT 'series',
     created_at TIMESTAMPTZ DEFAULT NOW()
   );
 
