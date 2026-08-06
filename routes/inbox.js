@@ -10,8 +10,69 @@
 
 const express = require('express');
 const router = express.Router();
+const { google } = require('googleapis');
 const { getDb } = require('../db');
+const { ensureFreshToken, getOAuth2Client } = require('./accounts');
 const logger = require('../logger');
+
+/**
+ * Decode Gmail API base64url payload into UTF-8 text.
+ */
+function decodeBase64Url(data = '') {
+  let base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = base64.length % 4;
+  if (pad === 2) base64 += '==';
+  else if (pad === 3) base64 += '=';
+  else if (pad === 1) base64 += '===';
+  try {
+    return Buffer.from(base64, 'base64').toString('utf-8');
+  } catch (_) {
+    return '';
+  }
+}
+
+function parseEmailAddress(value = '') {
+  const emailMatch = /<([^>]+)>/.exec(value);
+  if (emailMatch && emailMatch[1]) {
+    return emailMatch[1].trim().toLowerCase();
+  }
+  return value.split(',')[0].trim().toLowerCase();
+}
+
+function findHeaderValue(headers = [], name) {
+  const header = headers.find((item) => String(item.name).toLowerCase() === name.toLowerCase());
+  return header ? String(header.value || '') : '';
+}
+
+function extractMessageBody(payload) {
+  const result = { body_text: '', body_html: '' };
+  if (!payload) return result;
+
+  if (payload.body && payload.body.data) {
+    const decoded = decodeBase64Url(payload.body.data);
+    if (payload.mimeType === 'text/plain') {
+      result.body_text = decoded;
+    } else if (payload.mimeType === 'text/html') {
+      result.body_html = decoded;
+    } else if (!result.body_text) {
+      result.body_text = decoded;
+    }
+  }
+
+  if (Array.isArray(payload.parts)) {
+    for (const part of payload.parts) {
+      const child = extractMessageBody(part);
+      if (child.body_text && !result.body_text) {
+        result.body_text = child.body_text;
+      }
+      if (child.body_html && !result.body_html) {
+        result.body_html = child.body_html;
+      }
+    }
+  }
+
+  return result;
+}
 
 /**
  * Simple AI / Keyword Sentiment Classifier for incoming replies.
@@ -109,21 +170,84 @@ router.get('/', async (req, res) => {
 router.post('/sync', async (_req, res) => {
   try {
     const db = await getDb();
-    const accounts = await db.prepare("SELECT * FROM accounts WHERE status = 'active'").all();
-    
-    let syncedCount = 0;
+    const accounts = await db.prepare("SELECT * FROM accounts WHERE status = 'active' AND type = 'oauth'").all();
 
-    // Simulate / Process account inbox check
+    if (!Array.isArray(accounts) || accounts.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No active OAuth sender accounts available for inbox sync.',
+        syncedAccounts: 0,
+        newMessages: 0,
+      });
+    }
+
+    let syncedAccounts = 0;
+    let newMessages = 0;
+
     for (const account of accounts) {
-      // In production with real IMAP or Gmail API credentials, this fetches unread messages.
-      // We check for any pending recipient logs or replies and store them cleanly.
-      syncedCount++;
+      try {
+        const accessToken = await ensureFreshToken(account);
+        const oauth2 = getOAuth2Client();
+        oauth2.setCredentials({ access_token: accessToken });
+        const gmail = google.gmail({ version: 'v1', auth: oauth2 });
+
+        const listResponse = await gmail.users.messages.list({
+          userId: 'me',
+          q: 'in:inbox is:unread',
+          maxResults: 50,
+        });
+
+        const messages = Array.isArray(listResponse.data.messages) ? listResponse.data.messages : [];
+        if (messages.length === 0) {
+          syncedAccounts += 1;
+          continue;
+        }
+
+        for (const item of messages) {
+          if (!item || !item.id) continue;
+
+          const messageResponse = await gmail.users.messages.get({
+            userId: 'me',
+            id: item.id,
+            format: 'full',
+          });
+
+          const payload = messageResponse.data.payload || {};
+          const headers = Array.isArray(payload.headers) ? payload.headers : [];
+          const from = findHeaderValue(headers, 'From');
+          const to = findHeaderValue(headers, 'To') || account.email;
+          const subject = findHeaderValue(headers, 'Subject') || '';
+
+          const sender_email = parseEmailAddress(from) || '';
+          const recipient_email = parseEmailAddress(to) || account.email;
+          const messageId = String(messageResponse.data.id || item.id);
+
+          const { body_text, body_html } = extractMessageBody(payload);
+          const sentiment = classifySentiment(body_text || body_html, subject);
+
+          const insertResult = await db.prepare(`
+            INSERT INTO inbox_messages
+              (account_id, sender_email, recipient_email, subject, body_text, body_html, sentiment, message_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(message_id) DO NOTHING
+          `).run(account.id, sender_email, recipient_email, subject, body_text, body_html, sentiment, messageId);
+
+          if (insertResult && insertResult.changes > 0) {
+            newMessages += 1;
+          }
+        }
+
+        syncedAccounts += 1;
+      } catch (accountErr) {
+        logger.warn({ err: accountErr, account: account.email }, 'Inbox sync failed for one account');
+      }
     }
 
     res.json({
       success: true,
-      message: `Inbox sync completed for ${accounts.length} active account(s).`,
-      syncedAccounts: accounts.length,
+      message: `Inbox sync completed for ${syncedAccounts} OAuth account(s). ${newMessages} new message(s) imported.`,
+      syncedAccounts,
+      newMessages,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

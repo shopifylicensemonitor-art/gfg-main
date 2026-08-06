@@ -517,6 +517,7 @@ const SQLITE_DDL = `
     body_html TEXT,
     sentiment TEXT DEFAULT 'neutral',
     is_read INTEGER DEFAULT 0,
+    message_id TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   );
 `;
