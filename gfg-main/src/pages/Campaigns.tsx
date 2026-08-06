@@ -945,6 +945,13 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                             {c.content_mode === 'rotation' ? 'ROTATION' : 'SINGLE'}
                           </span>
                           <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                            c.send_order === 'random'
+                              ? 'bg-fuchsia-500/10 text-fuchsia-500 border-fuchsia-500/20'
+                              : 'bg-slate-500/10 text-slate-500 border-slate-500/20'
+                          }`}>
+                            {c.send_order === 'random' ? 'RANDOM' : 'SERIES'}
+                          </span>
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
                             c.status === 'sending'
                               ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
                               : c.status === 'paused'

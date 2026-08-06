@@ -170,7 +170,7 @@ router.get('/', async (req, res) => {
 router.post('/sync', async (_req, res) => {
   try {
     const db = await getDb();
-    const accounts = await db.prepare("SELECT * FROM accounts WHERE status = 'active' AND type = 'oauth'").all();
+    const accounts = await db.prepare("SELECT * FROM accounts WHERE status = 'active' AND type IN ('oauth', 'google')").all();
 
     if (!Array.isArray(accounts) || accounts.length === 0) {
       return res.json({
@@ -193,7 +193,8 @@ router.post('/sync', async (_req, res) => {
 
         const listResponse = await gmail.users.messages.list({
           userId: 'me',
-          q: 'in:inbox is:unread',
+          labelIds: ['INBOX'],
+          q: 'is:unread',
           maxResults: 50,
         });
 

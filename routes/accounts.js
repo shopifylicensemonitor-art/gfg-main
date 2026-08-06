@@ -53,12 +53,25 @@ async function ensureFreshToken(account) {
   try {
     const oauth2 = getOAuth2Client();
     oauth2.setCredentials({ refresh_token: account.refresh_token });
-    const { credentials } = await oauth2.refreshAccessToken();
+
+    let tokenResult;
+    if (typeof oauth2.refreshAccessToken === 'function') {
+      tokenResult = await oauth2.refreshAccessToken();
+      tokenResult = tokenResult && tokenResult.credentials ? tokenResult.credentials : tokenResult;
+    } else {
+      tokenResult = await oauth2.getAccessToken();
+    }
+
+    const newAccessToken = typeof tokenResult === 'string'
+      ? tokenResult
+      : tokenResult?.token || tokenResult?.access_token || account.access_token;
+    const newExpiry = tokenResult?.res?.data?.expiry_date || tokenResult?.expiry_date || account.token_expiry || (Date.now() + 3600 * 1000);
+
+    if (!newAccessToken) {
+      throw new Error(`Unable to refresh access token for account ${account.email}.`);
+    }
 
     const db = await getDb();
-    const newExpiry = credentials.expiry_date || (Date.now() + 3600 * 1000);
-    const newAccessToken = credentials.access_token || account.access_token;
-
     await db.prepare(`
       UPDATE accounts
       SET access_token  = ?,
@@ -68,13 +81,13 @@ async function ensureFreshToken(account) {
 
     return newAccessToken;
   } catch (err) {
-    // If refreshing failed but we have an access_token, fallback gracefully
     if (account.access_token) {
       return account.access_token;
     }
     throw err;
   }
 }
+
 
 /**
  * Create a Nodemailer transport from an SMTP account row.

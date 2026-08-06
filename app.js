@@ -150,15 +150,16 @@ app.get('/api/dashboard', generalLimiter, requireAuth, async (_req, res) => {
   try {
     const db = await getDb();
     
-    const accountsRow = await db.prepare("SELECT SUM(daily_sent) as today_sent, COUNT(*) as total FROM accounts WHERE status = 'active'").get() || { today_sent: 0, total: 0 };
+    const totalSentRow = await db.prepare("SELECT SUM(daily_sent) as today_sent FROM accounts").get() || { today_sent: 0 };
+    const activeAccountsRow = await db.prepare("SELECT COUNT(*) as active_accounts FROM accounts WHERE status = 'active'").get() || { active_accounts: 0 };
     const queueRow = await db.prepare("SELECT COUNT(*) as pending FROM queue WHERE status = 'pending'").get() || { pending: 0 };
     const campaignsRow = await db.prepare("SELECT COUNT(*) as active FROM campaigns WHERE status = 'sending'").get() || { active: 0 };
     const failedRow = await db.prepare("SELECT SUM(failed_count) as failed FROM campaigns").get() || { failed: 0 };
     const trackingRow = await db.prepare("SELECT COALESCE(SUM(opens_count), 0) as opens, COALESCE(SUM(clicks_count), 0) as clicks FROM queue").get() || { opens: 0, clicks: 0 };
 
     const stats = {
-      today_sent: accountsRow.today_sent || 0,
-      active_accounts: accountsRow.total || 0,
+      today_sent: totalSentRow.today_sent || 0,
+      active_accounts: activeAccountsRow.active_accounts || 0,
       pending: queueRow.pending || 0,
       active_campaigns: campaignsRow.active || 0,
       failed: failedRow.failed || 0,
