@@ -1,0 +1,525 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Capacitor mobile safe-area handling ────────────────── */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --keyboard-height: 0px;
+}
+
+html, body {
+  /* Prevent rubber-band scrolling on native */
+  overscroll-behavior: none;
+}
+
+#root {
+  min-height: 100vh;
+  min-height: 100dvh; /* dynamic viewport height for mobile */
+  padding-top: var(--safe-area-top);
+  padding-bottom: calc(var(--safe-area-bottom) + var(--keyboard-height));
+  padding-left: var(--safe-area-left);
+  padding-right: var(--safe-area-right);
+}
+
+/* ── Peak Xender Design System: Slate & Indigo ────────────── */
+
+@layer base {
+  :root {
+    /* Warm parchment light mode */
+    --background: 220 14% 96%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 239 84% 57%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 215 28% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 220 14% 92%;
+    --muted-foreground: 215 16% 60%;
+
+    --accent: 239 84% 67%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 350 89% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 160 84% 22%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 220 13% 87%;
+    --input: 220 13% 87%;
+    --ring: 239 84% 67%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 220 14% 96%;
+    --sidebar-foreground: 215 16% 47%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 92%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 220 13% 87%;
+    --sidebar-ring: 239 84% 67%;
+
+    --gradient-start: 239 84% 67%;
+    --gradient-end: 160 84% 39%;
+  }
+
+  .dark {
+    --background: 222 47% 3%;
+    --foreground: 210 40% 96%;
+
+    --card: 222 47% 6%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 222 47% 6%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 239 84% 57%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 215 28% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 12%;
+    --muted-foreground: 215 20% 70%;
+
+    --accent: 239 84% 67%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 350 89% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 160 84% 22%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 239 84% 67%;
+
+    --sidebar-background: 222 47% 4%;
+    --sidebar-foreground: 215 20% 55%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 12%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 239 84% 67%;
+
+    --gradient-start: 239 84% 55%;
+    --gradient-end: 160 84% 35%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border selection:bg-primary/30;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased font-sans;
+    font-size: 14px;
+    letter-spacing: -0.01em;
+  }
+}
+
+/* ── Component Utilities ────────────────────────────────── */
+
+/* Accessibility overrides: map common Tailwind / utility colors to design tokens to ensure sufficient contrast */
+.text-muted-foreground { color: hsl(var(--muted-foreground)) !important; }
+.text-slate-500 { color: hsl(var(--muted-foreground)) !important; }
+.bg-emerald-500 { background-color: hsl(var(--success)) !important; }
+
+
+/* Premium glassmorphism card */
+.glass-card {
+  @apply rounded-xl border border-border/60 bg-card/70 backdrop-blur-xl shadow-sm;
+  transition: all 0.3s ease-out;
+}
+.glass-card:hover {
+  @apply border-border shadow-md;
+}
+
+.dark .glass-card {
+  @apply bg-card/50 border-slate-800/80;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+.dark .glass-card:hover {
+  @apply border-slate-700/60;
+  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.05);
+}
+
+/* Premium transitions */
+.page-transition {
+  @apply transition-all duration-300 ease-out;
+}
+
+.hover-lift {
+  @apply transition-transform duration-200 hover:-translate-y-0.5;
+}
+
+/* Gradient utilities */
+.gradient-text {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-emerald-500 font-bold;
+}
+
+.gradient-card {
+  background: linear-gradient(135deg, hsl(var(--gradient-start)), hsl(var(--gradient-end)));
+}
+
+.peak-gradient-bg {
+  background: linear-gradient(135deg, hsl(var(--gradient-start)), hsl(var(--gradient-end)));
+}
+
+/* Status pill styles */
+.status-pill {
+  @apply text-[10px] font-bold px-2.5 py-1 rounded-full border uppercase tracking-wider;
+}
+
+.status-pill-active {
+  @apply bg-emerald-500/10 text-emerald-400 border-emerald-500/20;
+}
+
+.status-pill-scheduled {
+  @apply bg-indigo-500/10 text-indigo-400 border-indigo-500/20;
+}
+
+.status-pill-paused {
+  @apply bg-amber-500/10 text-amber-400 border-amber-500/20;
+}
+
+.status-pill-failed {
+  @apply bg-rose-500/10 text-rose-400 border-rose-500/20;
+}
+
+.status-pill-sent {
+  @apply bg-emerald-500/10 text-emerald-400 border-emerald-500/20;
+}
+
+.status-pill-pending {
+  @apply bg-slate-800 text-slate-400 border-slate-700;
+}
+
+.status-pill-sending {
+  @apply bg-blue-500/10 text-blue-400 border-blue-500/20;
+}
+
+/* ── Scrollbar Styling ──────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* ── Confetti animation ─────────────────────────────────── */
+
+/* Skip link visible on focus */
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  z-index: 9999;
+  transform: translateY(-10px);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  opacity: 0;
+}
+.skip-link:focus {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(100vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+.animate-confetti-fall {
+  animation: confetti-fall 3s ease-out forwards;
+}
+
+/* ── Diagonal Scrolling Watermark ───────────────────────── */
+@keyframes diagonal-scroll {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 1000px -1000px;
+  }
+}
+
+.scrolling-watermark {
+  position: relative;
+}
+
+.scrolling-watermark::before {
+  display: none !important;
+}
+
+/* Disable scrolling watermark animation and hide background on mobile and reduced-motion devices to prevent GPU rendering glitches, static line artifacts, and heavy CPU drain */
+@media (max-width: 768px), (prefers-reduced-motion: reduce) {
+  .scrolling-watermark::before {
+    display: none !important;
+    animation: none !important;
+  }
+  
+  /* Disable backdrop-filter on mobile to prevent GPU compositor rendering glitches, text doubling, static lines, and ghosting artifacts */
+  * {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+/* ── Premium $1M SaaS UI Animations & Styles ────────────────── */
+
+@keyframes row-entrance {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-row-entrance {
+  animation: row-entrance 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(99, 102, 241, 0.15), 0 0 15px rgba(99, 102, 241, 0.05);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(99, 102, 241, 0.35), 0 0 25px rgba(99, 102, 241, 0.15);
+  }
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 3s infinite ease-in-out;
+}
+
+@keyframes bounce-spring {
+  0% { transform: scale(0.4); opacity: 0; }
+  65% { transform: scale(1.12); }
+  85% { transform: scale(0.95); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-bounce-spring {
+  animation: bounce-spring 0.38s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.animate-float-slow {
+  animation: float-slow 4s ease-in-out infinite;
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 12s linear infinite;
+}
+
+/* Glassmorphism premium highlights */
+.glass-glow-card {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-glow-card:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 12px 40px 0 rgba(99, 102, 241, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Premium input styling */
+.premium-input {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.premium-input:focus {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+/* Scroll Reveal Animations */
+.reveal-section {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+.reveal-section.reveal-active {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Mobile Bottom Navigation Animations ──────────────────── */
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scale-in {
+  from {
+    transform: translateX(-50%) scaleX(0);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) scaleX(1);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* ── Mobile-First Optimizations ──────────────────────────── */
+
+@media (max-width: 1023px) {
+  /* Smooth momentum scrolling */
+  html {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+
+  /* Prevent text selection on interactive elements */
+  button, a, nav {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Larger touch targets on mobile (min 44px) */
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Except inline text links and tiny badge links */
+  a.inline-link,
+  span > a,
+  p > a,
+  .text-\[9px\] a,
+  .text-\[10px\] a,
+  nav a {
+    min-height: unset;
+    min-width: unset;
+  }
+
+  /* Mobile card spacing — tighter padding, full-bleed */
+  .glass-glow-card {
+    border-radius: 12px;
+  }
+
+  /* Disable hover transforms on touch devices */
+  .glass-glow-card:hover {
+    transform: none;
+  }
+
+  /* Mobile-friendly inputs */
+  input, textarea, select {
+    font-size: 16px !important; /* Prevents iOS zoom on focus */
+  }
+
+  /* Compact stat cards in 2-column grid */
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+}
+
+/* ── Mobile Typography Enhancements ──────────────────────── */
+
+@media (max-width: 640px) {
+  /* Slightly larger body text for readability */
+  body {
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  /* Page headings */
+  h1 {
+    font-size: 1.5rem !important;
+  }
+
+  h2 {
+    font-size: 1.25rem !important;
+  }
+
+  /* Full-width buttons on small screens */
+  .mobile-full-width {
+    width: 100% !important;
+  }
+}

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+<meta name="google-site-verification" content="dccIXBknxGadoTe5IqFadZtFriqlSanPeRizyHPZDlc" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- Google Fonts: Inter (UI) + Fira Code (Monospace Metrics) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Fira+Code:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Peak Xender SEO Baseline -->
+  <title>Peak Xender - Automated Email Outreach & Personalization Platform</title>
+  <meta name="description" content="Peak Xender is an automated email outreach and campaign management platform. Connect your Gmail account via Google OAuth to schedule, personalize, and send cold email campaigns securely." />
+  <meta name="keywords" content="Peak Xender, bulk email outreach, cold email sender, Gmail OAuth email marketing, email personalization, outreach automation" />
+  <meta name="author" content="Peak Xender" />
+  <link rel="canonical" href="https://send.peakconix.site/" />
+
+  <meta property="og:title" content="Peak Xender - Automated Email Outreach & Personalization Platform" />
+  <meta property="og:description" content="Peak Xender is an automated email outreach and campaign management platform. Connect your Gmail account via Google OAuth to schedule and send personalized email campaigns." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://send.peakconix.site/" />
+  <meta property="og:image" content="https://send.peakconix.site/logo-light.jpg" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content="@PeakXender" />
+  <meta name="twitter:title" content="Peak Xender - Automated Email Outreach Platform" />
+  <meta name="twitter:description" content="Peak Xender is an automated email outreach and campaign management platform." />
+  <meta name="twitter:image" content="https://send.peakconix.site/logo-light.jpg" />
+
+  <link rel="icon" type="image/png" href="/logo-light.jpg" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#6366f1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="/logo-light.jpg" />
+  <meta name="google-site-verification" content="f_hfBJEaDqn--6VYu9Aj7eRhWpiRISrw6jEWDDqVdjo" />
+</head>
+
+<body>
+  <a href="#main-content" class="sr-only focus:not-sr-only skip-link">Skip to main content</a>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+  <script>
+    // Register Service Worker for PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('SW registered:', reg.scope))
+          .catch(err => console.log('SW registration failed:', err));
+      });
+    }
+  </script>
+</body>
+
+</html>

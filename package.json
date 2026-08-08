@@ -1,0 +1,35 @@
+{
+  "name": "peak-xender-root",
+  "version": "1.0.0",
+  "description": "Unified Bulk Email Outreach Platform",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "frontend:dev": "cd gfg-main && npm run dev",
+    "frontend:build": "cd gfg-main && npm run build",
+    "backend:dev": "node server.js",
+    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
+    "postinstall": "npm install --prefix gfg-main"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.5.2",
+    "google-auth-library": "^9.15.1",
+    "googleapis": "^140.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.13",
+    "pg": "^8.21.0",
+    "pino": "^10.3.1",
+    "serverless-http": "^4.0.0",
+    "sql.js": "^1.10.3"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.62.1",
+    "concurrently": "^8.2.2"
+  }
+}
