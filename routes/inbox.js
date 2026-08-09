@@ -10,9 +10,8 @@
 
 const express = require('express');
 const router = express.Router();
-const { google } = require('googleapis');
 const { getDb } = require('../db');
-const { ensureFreshToken, getOAuth2Client } = require('./accounts');
+const { getProviderForAccount } = require('../providers');
 const logger = require('../logger');
 
 /**
@@ -124,14 +123,15 @@ router.get('/', async (req, res) => {
     const db = await getDb();
     const limit = parseInt(req.query.limit, 10) || 50;
     
-    // Fetch received messages
+    // Fetch received messages (workspace-scoped)
     const messages = await db.prepare(`
       SELECT m.*, a.email as account_email
       FROM inbox_messages m
       LEFT JOIN accounts a ON m.account_id = a.id
+      WHERE m.workspace_id = ?
       ORDER BY m.id DESC
       LIMIT ?
-    `).all(limit);
+    `).all(req.workspace.id, limit);
 
     // Enrich messages with linked contact dossier details from contacts table
     const enriched = await Promise.all(
@@ -167,15 +167,15 @@ router.get('/', async (req, res) => {
 /**
  * POST /api/inbox/sync — Trigger email receiving sync for connected accounts
  */
-router.post('/sync', async (_req, res) => {
+router.post('/sync', async (req, res) => {
   try {
     const db = await getDb();
-    const accounts = await db.prepare("SELECT * FROM accounts WHERE status = 'active' AND type IN ('oauth', 'google')").all();
+    const accounts = await db.prepare("SELECT * FROM accounts WHERE status = 'active' AND workspace_id = ?").all(req.workspace.id);
 
     if (!Array.isArray(accounts) || accounts.length === 0) {
       return res.json({
         success: true,
-        message: 'No active OAuth sender accounts available for inbox sync.',
+        message: 'No active sender accounts available for inbox sync.',
         syncedAccounts: 0,
         newMessages: 0,
       });
@@ -186,52 +186,18 @@ router.post('/sync', async (_req, res) => {
 
     for (const account of accounts) {
       try {
-        const accessToken = await ensureFreshToken(account);
-        const oauth2 = getOAuth2Client();
-        oauth2.setCredentials({ access_token: accessToken });
-        const gmail = google.gmail({ version: 'v1', auth: oauth2 });
+        const provider = getProviderForAccount(account);
+        const fetchedMessages = await provider.getInbox(50);
 
-        const listResponse = await gmail.users.messages.list({
-          userId: 'me',
-          labelIds: ['INBOX'],
-          q: 'is:unread',
-          maxResults: 50,
-        });
-
-        const messages = Array.isArray(listResponse.data.messages) ? listResponse.data.messages : [];
-        if (messages.length === 0) {
-          syncedAccounts += 1;
-          continue;
-        }
-
-        for (const item of messages) {
-          if (!item || !item.id) continue;
-
-          const messageResponse = await gmail.users.messages.get({
-            userId: 'me',
-            id: item.id,
-            format: 'full',
-          });
-
-          const payload = messageResponse.data.payload || {};
-          const headers = Array.isArray(payload.headers) ? payload.headers : [];
-          const from = findHeaderValue(headers, 'From');
-          const to = findHeaderValue(headers, 'To') || account.email;
-          const subject = findHeaderValue(headers, 'Subject') || '';
-
-          const sender_email = parseEmailAddress(from) || '';
-          const recipient_email = parseEmailAddress(to) || account.email;
-          const messageId = String(messageResponse.data.id || item.id);
-
-          const { body_text, body_html } = extractMessageBody(payload);
-          const sentiment = classifySentiment(body_text || body_html, subject);
+        for (const item of fetchedMessages) {
+          const sentiment = classifySentiment(item.bodyText || item.bodyHtml, item.subject);
 
           const insertResult = await db.prepare(`
             INSERT INTO inbox_messages
-              (account_id, sender_email, recipient_email, subject, body_text, body_html, sentiment, message_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              (workspace_id, account_id, sender_email, recipient_email, subject, body_text, body_html, sentiment, message_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(message_id) DO NOTHING
-          `).run(account.id, sender_email, recipient_email, subject, body_text, body_html, sentiment, messageId);
+          `).run(req.workspace.id, account.id, item.senderEmail, item.recipientEmail, item.subject, item.bodyText, item.bodyHtml, sentiment, item.messageId);
 
           if (insertResult && insertResult.changes > 0) {
             newMessages += 1;
@@ -240,13 +206,13 @@ router.post('/sync', async (_req, res) => {
 
         syncedAccounts += 1;
       } catch (accountErr) {
-        logger.warn({ err: accountErr, account: account.email }, 'Inbox sync failed for one account');
+        logger.warn({ err: accountErr.message, account: account.email }, 'Inbox sync failed for one account');
       }
     }
 
     res.json({
       success: true,
-      message: `Inbox sync completed for ${syncedAccounts} OAuth account(s). ${newMessages} new message(s) imported.`,
+      message: `Inbox sync completed for ${syncedAccounts} account(s). ${newMessages} new message(s) imported.`,
       syncedAccounts,
       newMessages,
     });
@@ -261,7 +227,7 @@ router.post('/sync', async (_req, res) => {
 router.post('/:id/read', async (req, res) => {
   try {
     const db = await getDb();
-    await db.prepare('UPDATE inbox_messages SET is_read = 1 WHERE id = ?').run(req.params.id);
+    await db.prepare('UPDATE inbox_messages SET is_read = 1 WHERE id = ? AND workspace_id = ?').run(req.params.id, req.workspace.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -277,17 +243,17 @@ router.post('/:id/reply', async (req, res) => {
 
   try {
     const db = await getDb();
-    const msg = await db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(req.params.id);
+    const msg = await db.prepare('SELECT * FROM inbox_messages WHERE id = ? AND workspace_id = ?').get(req.params.id, req.workspace.id);
     if (!msg) return res.status(404).json({ error: 'Message not found.' });
 
     // Log the reply action
     await db.prepare(`
-      INSERT INTO logs (account_id, recipient_email, status, message)
-      VALUES (?, ?, 'replied', ?)
-    `).run(msg.account_id || null, msg.sender_email, `Sent reply to ${msg.sender_email}`);
+      INSERT INTO logs (workspace_id, account_id, recipient_email, status, message)
+      VALUES (?, ?, ?, 'replied', ?)
+    `).run(req.workspace.id, msg.account_id || null, msg.sender_email, `Sent reply to ${msg.sender_email}`);
 
     // Mark as read
-    await db.prepare('UPDATE inbox_messages SET is_read = 1 WHERE id = ?').run(req.params.id);
+    await db.prepare('UPDATE inbox_messages SET is_read = 1 WHERE id = ? AND workspace_id = ?').run(req.params.id, req.workspace.id);
 
     res.json({ success: true, message: `Reply queued successfully to ${msg.sender_email}.` });
   } catch (err) {

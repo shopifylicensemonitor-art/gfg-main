@@ -19,15 +19,16 @@ const { getDb } = require('../db');
 const upload = multer({ storage: multer.memoryStorage() });
 
 /** List all distinct contact list names with counts. */
-router.get('/lists', async (_req, res) => {
+router.get('/lists', async (req, res) => {
   try {
     const db = await getDb();
     const lists = await db.prepare(`
       SELECT list_name, COUNT(*) as count
       FROM contacts
+      WHERE workspace_id = ?
       GROUP BY list_name
       ORDER BY list_name
-    `).all();
+    `).all(req.workspace.id);
     res.json(lists);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -93,24 +94,25 @@ router.get('/history/:email', async (req, res) => {
     const db = await getDb();
     const email = req.params.email;
 
+    const wsId = req.workspace.id;
     // Sent queue emails
     const queueSends = await db.prepare(`
       SELECT q.*, c.name as campaign_name
       FROM queue q
       LEFT JOIN campaigns c ON q.campaign_id = c.id
-      WHERE q.recipient_email = ?
+      WHERE q.recipient_email = ? AND q.workspace_id = ?
       ORDER BY q.id DESC
-    `).all(email);
+    `).all(email, wsId);
 
     // Logs
     const logItems = await db.prepare(`
-      SELECT * FROM logs WHERE recipient_email = ? ORDER BY id DESC LIMIT 20
-    `).all(email);
+      SELECT * FROM logs WHERE recipient_email = ? AND workspace_id = ? ORDER BY id DESC LIMIT 20
+    `).all(email, wsId);
 
     // Received inbox replies
     const replies = await db.prepare(`
-      SELECT * FROM inbox_messages WHERE sender_email = ? OR recipient_email = ? ORDER BY id DESC
-    `).all(email, email);
+      SELECT * FROM inbox_messages WHERE (sender_email = ? OR recipient_email = ?) AND workspace_id = ? ORDER BY id DESC
+    `).all(email, email, wsId);
 
     res.json({
       sends: queueSends || [],
@@ -129,8 +131,8 @@ router.get('/:listName', async (req, res) => {
     const limit = parseInt(req.query.limit, 10);
     const offset = parseInt(req.query.offset, 10);
     
-    let query = 'SELECT * FROM contacts WHERE list_name = ? ORDER BY id';
-    const params = [req.params.listName];
+    let query = 'SELECT * FROM contacts WHERE list_name = ? AND workspace_id = ? ORDER BY id';
+    const params = [req.params.listName, req.workspace.id];
     
     if (!isNaN(limit) && limit > 0) {
       query += ' LIMIT ?';
@@ -165,10 +167,9 @@ router.post('/import-bulk', async (req, res) => {
   if (!Array.isArray(contacts)) return res.status(400).json({ error: 'contacts array is required.' });
 
   try {
-    const db = await getDb();
-
+    const wsId = req.workspace.id;
     // Fetch existing emails to prevent duplicates efficiently
-    const existing = await db.prepare('SELECT email FROM contacts WHERE list_name = ?').all(listName);
+    const existing = await db.prepare('SELECT email FROM contacts WHERE list_name = ? AND workspace_id = ?').all(listName, wsId);
     const existingEmails = new Set(existing.map(row => row.email.toLowerCase()));
 
     const contactsToInsert = [];
@@ -201,11 +202,11 @@ router.post('/import-bulk', async (req, res) => {
         const chunkSize = 200;
         for (let i = 0; i < contactsToInsert.length; i += chunkSize) {
           const chunk = contactsToInsert.slice(i, i + chunkSize);
-          const placeholders = chunk.map(() => '(?, ?, ?)').join(', ');
-          const sql = `INSERT INTO contacts (list_name, email, fields) VALUES ${placeholders}`;
+          const placeholders = chunk.map(() => '(?, ?, ?, ?)').join(', ');
+          const sql = `INSERT INTO contacts (workspace_id, list_name, email, fields) VALUES ${placeholders}`;
           const params = [];
           chunk.forEach(item => {
-            params.push(listName, item.email, item.fieldsJson);
+            params.push(wsId, listName, item.email, item.fieldsJson);
           });
           await txDb.prepare(sql).run(params);
           added += chunk.length;
@@ -475,8 +476,9 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     let added = 0;
     let skipped = 0;
 
+    const wsId = req.workspace.id;
     // Fetch existing emails to prevent duplicates efficiently
-    const existing = await db.prepare('SELECT email FROM contacts WHERE list_name = ?').all(listName);
+    const existing = await db.prepare('SELECT email FROM contacts WHERE list_name = ? AND workspace_id = ?').all(listName, wsId);
     const existingEmails = new Set(existing.map(row => row.email.toLowerCase()));
 
     const contactsToInsert = [];
@@ -529,11 +531,11 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         const chunkSize = 200;
         for (let i = 0; i < contactsToInsert.length; i += chunkSize) {
           const chunk = contactsToInsert.slice(i, i + chunkSize);
-          const placeholders = chunk.map(() => '(?, ?, ?)').join(', ');
-          const sql = `INSERT INTO contacts (list_name, email, fields) VALUES ${placeholders}`;
+          const placeholders = chunk.map(() => '(?, ?, ?, ?)').join(', ');
+          const sql = `INSERT INTO contacts (workspace_id, list_name, email, fields) VALUES ${placeholders}`;
           const params = [];
           chunk.forEach(c => {
-            params.push(listName, c.email, c.fieldsJson);
+            params.push(wsId, listName, c.email, c.fieldsJson);
           });
           await txDb.prepare(sql).run(params);
           added += chunk.length;
@@ -562,17 +564,18 @@ router.post('/', async (req, res) => {
 
   try {
     const db = await getDb();
+    const wsId = req.workspace.id;
     const existing = await db.prepare(
-      'SELECT id FROM contacts WHERE list_name = ? AND email = ?'
-    ).get(list_name, email);
+      'SELECT id FROM contacts WHERE list_name = ? AND email = ? AND workspace_id = ?'
+    ).get(list_name, email, wsId);
 
     if (existing) {
       return res.status(409).json({ error: 'Contact already exists in this list.' });
     }
 
     const result = await db.prepare(
-      'INSERT INTO contacts (list_name, email) VALUES (?, ?)'
-    ).run(list_name, email);
+      'INSERT INTO contacts (workspace_id, list_name, email) VALUES (?, ?, ?)'
+    ).run(wsId, list_name, email);
     res.json({ success: true, id: result.lastInsertRowid });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -583,7 +586,7 @@ router.post('/', async (req, res) => {
 router.delete('/:listName', async (req, res) => {
   try {
     const db = await getDb();
-    const result = await db.prepare('DELETE FROM contacts WHERE list_name = ?').run(req.params.listName);
+    const result = await db.prepare('DELETE FROM contacts WHERE list_name = ? AND workspace_id = ?').run(req.params.listName, req.workspace.id);
     res.json({ success: true, deleted: result.changes });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -594,8 +597,8 @@ router.delete('/:listName', async (req, res) => {
 router.delete('/:listName/:id', async (req, res) => {
   try {
     const db = await getDb();
-    await db.prepare('DELETE FROM contacts WHERE id = ? AND list_name = ?')
-      .run(req.params.id, req.params.listName);
+    await db.prepare('DELETE FROM contacts WHERE id = ? AND list_name = ? AND workspace_id = ?')
+      .run(req.params.id, req.params.listName, req.workspace.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

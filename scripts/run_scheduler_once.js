@@ -1,4 +1,4 @@
-﻿const { processNextItem, stopScheduler } = require('./scheduler');
+const { processNextItem } = require('../scheduler');
 (async () => {
   try {
     await processNextItem();
@@ -6,7 +6,5 @@
   } catch (err) {
     console.error('Scheduler run error', err);
     process.exitCode = 1;
-  } finally {
-    stopScheduler();
   }
 })();

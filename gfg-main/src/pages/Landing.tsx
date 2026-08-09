@@ -4,7 +4,6 @@ import { SEO } from '@/components/SEO';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import PinModal from '@/components/PinModal';
 import { 
   Send, Sparkles, ShieldCheck, FileSpreadsheet, Lock, 
   BarChart3, RefreshCw, Layers, CheckCircle2, Terminal, 
@@ -27,7 +26,6 @@ const DEMO_LEADS: DemoLead[] = [
 
 export default function Landing() {
   const navigate = useNavigate();
-  const [showPinModal, setShowPinModal] = useState(false);
   const [selectedLead, setSelectedLead] = useState<DemoLead>(DEMO_LEADS[0]);
   const [sentLeads, setSentLeads] = useState<Record<string, boolean>>({});
   
@@ -54,15 +52,6 @@ export default function Landing() {
   }, []);
 
   const handleLaunchConsole = () => {
-    navigate('/send');
-  };
-
-  const handlePinSuccess = (pin: string) => {
-    setShowPinModal(false);
-    toast({
-      title: 'Authentication Granted',
-      description: 'Access authorized. Opening sending console...',
-    });
     navigate('/send');
   };
 
@@ -597,15 +586,6 @@ export default function Landing() {
           </div>
         </div>
       </footer>
-
-      {/* PIN Gate Dialog */}
-      {showPinModal && (
-        <PinModal
-          onSuccess={handlePinSuccess}
-          onCancel={() => setShowPinModal(false)}
-          actionLabel="login to Peak Xender outreach console"
-        />
-      )}
     </div>
   );
 }

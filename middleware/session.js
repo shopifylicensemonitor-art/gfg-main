@@ -1,61 +1,55 @@
 /**
  * middleware/session.js — JWT session verification middleware.
  *
- * Checks for Bearer token in Authorization header.
- * Falls back to PIN auth if no JWT is configured (backward compatible).
+ * Reads the JWT from:
+ *   1. HttpOnly cookie named `session_token`  (preferred — browser sessions)
+ *   2. Authorization: Bearer <token>  header   (API clients / mobile)
+ *
+ * PIN authentication has been removed entirely.
  */
 
 const jwt = require('jsonwebtoken');
 const logger = require('../logger');
 
 const JWT_SECRET = process.env.JWT_SECRET || null;
+const COOKIE_NAME = 'session_token';
 
 /**
- * Middleware that accepts EITHER a valid JWT Bearer token
- * OR the legacy PIN-based auth. This ensures backward compatibility
- * while enabling the new auth flow.
+ * Middleware that verifies a valid JWT session.
+ * Sets req.user = { id, email, name, role } on success.
  */
 function requireAuth(req, res, next) {
   // Allow public access to OAuth callback and auth-url generation
-  if (req.path === '/callback' || req.path === '/auth-url') {
+  if (req.path === '/callback' || req.path === '/microsoft/callback' || req.path === '/auth-url' || req.path === '/microsoft-url') {
     return next();
   }
 
-  // Try JWT Bearer token
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    if (!JWT_SECRET) {
-      return res.status(401).json({ error: 'Unauthorized. JWT authentication is not configured.' });
-    }
+  if (!JWT_SECRET) {
+    return res.status(500).json({ error: 'Server misconfiguration: JWT_SECRET is not set.' });
+  }
 
-    try {
-      const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, JWT_SECRET);
-      req.user = decoded;
-      return next();
-    } catch (_) {
-      return res.status(401).json({ error: 'Unauthorized. Invalid or expired token.' });
+  // 1. Try HttpOnly cookie
+  let token = req.cookies && req.cookies[COOKIE_NAME];
+
+  // 2. Fallback to Authorization Bearer header (for API clients)
+  if (!token) {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
     }
   }
 
-  // Allow PIN auth only when explicitly configured.
-  const configuredPin = process.env.ACCESS_PIN || null;
-  const providedPin = (req.query && req.query.pin) || req.headers['x-access-pin'];
-
-  // Debug logging to help trace local dev auth issues (do not log PINs in prod)
-  if (process.env.NODE_ENV !== 'production') {
-    try {
-      logger.debug({ configuredPin: !!configuredPin, providedPin: providedPin ? '[REDACTED]' : null }, 'PIN auth check');
-    } catch (_) { /* ignore logging failures */ }
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized. No session token provided.' });
   }
 
-  if (configuredPin && providedPin && String(providedPin) === String(configuredPin)) {
-    // Mark a minimal user context so downstream handlers can rely on `req.user`.
-    req.user = { id: 'pin', email: 'local-pin', role: 'admin' };
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
     return next();
+  } catch (_) {
+    return res.status(401).json({ error: 'Unauthorized. Invalid or expired token.' });
   }
-
-  return res.status(401).json({ error: 'Unauthorized. Provide a valid JWT token or configured PIN.' });
 }
 
-module.exports = { requireAuth };
+module.exports = { requireAuth, COOKIE_NAME };

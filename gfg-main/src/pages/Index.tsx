@@ -13,6 +13,7 @@ import { useTemplates } from '@/hooks/useTemplates';
 import { useDailyCounter } from '@/hooks/useDailyCounter';
 import { use24hTracker } from '@/hooks/use24hTracker';
 import { useOutreachTracker } from '@/hooks/useOutreachTracker';
+import { useAutoSync } from '@/hooks/useAutoSync';
 import { ArrowUp, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -130,6 +131,16 @@ const Index = () => {
   } = useDailyCounter();
   const { count: count24h, trackClick, timestamps } = use24hTracker();
   const { addLog, addLogs } = useOutreachTracker();
+
+  // ── Live Background Sync ────────────────────────────────────────────────────
+  // Polls /api/dashboard every 30s (8s while campaigns are actively sending).
+  const {
+    stats: liveStats,
+    activeCampaignCount,
+    pendingQueueCount,
+    lastSyncedAt,
+    triggerSync: triggerDashboardSync,
+  } = useAutoSync(true, 30_000);
 
   // ── State Hooks ────────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');

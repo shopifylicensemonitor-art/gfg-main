@@ -8,10 +8,14 @@
     "frontend:dev": "cd gfg-main && npm run dev",
     "frontend:build": "cd gfg-main && npm run build",
     "backend:dev": "node server.js",
-    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
+    "worker": "node worker.js",
+    "dev": "concurrently \"npm run backend:dev\" \"npm run worker\" \"npm run frontend:dev\"",
+    "test": "node test/providers-entitlements.test.js && node test/e2e-security-audit.test.js",
+    "test:security": "node test/e2e-security-audit.test.js",
     "postinstall": "npm install --prefix gfg-main"
   },
   "dependencies": {
+    "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.18.2",

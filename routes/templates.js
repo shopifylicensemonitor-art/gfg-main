@@ -2,8 +2,8 @@
  * routes/templates.js — Email template CRUD.
  *
  * Endpoints:
- *   GET    /api/templates      → List all templates
- *   GET    /api/templates/:id  → Get single template
+ *   GET    /api/templates      → List all templates (workspace-scoped)
+ *   GET    /api/templates/:id  → Get single template (workspace-scoped)
  *   POST   /api/templates      → Create template
  *   PUT    /api/templates/:id  → Update template
  *   DELETE /api/templates/:id  → Delete template
@@ -14,10 +14,10 @@ const router = express.Router();
 const { getDb } = require('../db');
 
 /** List all templates. */
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = await getDb();
-    const templates = await db.prepare('SELECT * FROM templates ORDER BY created_at DESC').all();
+    const templates = await db.prepare('SELECT * FROM templates WHERE workspace_id = ? ORDER BY created_at DESC').all(req.workspace.id);
     res.json(templates);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -28,7 +28,7 @@ router.get('/', async (_req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const db = await getDb();
-    const template = await db.prepare('SELECT * FROM templates WHERE id = ?').get(req.params.id);
+    const template = await db.prepare('SELECT * FROM templates WHERE id = ? AND workspace_id = ?').get(req.params.id, req.workspace.id);
     if (!template) return res.status(404).json({ error: 'Not found.' });
     res.json(template);
   } catch (err) {
@@ -46,9 +46,9 @@ router.post('/', async (req, res) => {
   try {
     const db = await getDb();
     const result = await db.prepare(`
-      INSERT INTO templates (name, subject, body_html, body_plain)
-      VALUES (?, ?, ?, ?)
-    `).run(name, subject, body_html || '', body_plain || '');
+      INSERT INTO templates (workspace_id, name, subject, body_html, body_plain)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(req.workspace.id, name, subject, body_html || '', body_plain || '');
     res.json({ success: true, id: result.lastInsertRowid });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -62,8 +62,8 @@ router.put('/:id', async (req, res) => {
     const db = await getDb();
     await db.prepare(`
       UPDATE templates SET name = ?, subject = ?, body_html = ?, body_plain = ?
-      WHERE id = ?
-    `).run(name, subject, body_html || '', body_plain || '', req.params.id);
+      WHERE id = ? AND workspace_id = ?
+    `).run(name, subject, body_html || '', body_plain || '', req.params.id, req.workspace.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -74,7 +74,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const db = await getDb();
-    await db.prepare('DELETE FROM templates WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM templates WHERE id = ? AND workspace_id = ?').run(req.params.id, req.workspace.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

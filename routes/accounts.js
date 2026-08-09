@@ -14,6 +14,8 @@ const router = express.Router();
 const { google } = require('googleapis');
 const nodemailer = require('nodemailer');
 const { getDb } = require('../db');
+const { encryptSecret, decryptSecret } = require('../lib/crypto');
+const { verifyLimit } = require('../middleware/entitlements');
 
 // Cache SMTP transports per account to reuse connections and enable pooling
 const transportCache = new Map();
@@ -130,14 +132,15 @@ function createSmtpTransport(account) {
 // ---------------------------------------------------------------------------
 
 /** List all accounts. */
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = await getDb();
     const accounts = await db.prepare(`
       SELECT id, email, status, daily_sent, daily_limit, last_reset, display_name,
              type, smtp_host, smtp_port, smtp_secure, created_at
       FROM accounts
-    `).all();
+      WHERE workspace_id = ?
+    `).all(req.workspace.id);
     res.json(accounts);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -145,8 +148,17 @@ router.get('/', async (_req, res) => {
 });
 
 /** Generate Google OAuth consent URL. */
-router.post('/auth-url', (req, res) => {
   try {
+    const db = await getDb();
+    const countRow = await db.prepare('SELECT COUNT(*) as count FROM accounts WHERE workspace_id = ?').get(req.workspace.id);
+    const canConnect = await verifyLimit(req.workspace.id, 'connected_mailboxes.max', countRow ? countRow.count : 0);
+    if (!canConnect) {
+      return res.status(403).json({
+        error: 'Mailbox limit reached for your plan. Upgrade your plan to connect additional accounts.',
+        code: 'MAILBOX_LIMIT_EXCEEDED',
+      });
+    }
+
     let customRedirectUri = req.body?.redirect_uri;
     if (!customRedirectUri && req.headers.host && (req.headers.host.includes('localhost') || req.headers.host.includes('127.0.0.1'))) {
       const protocol = req.headers['x-forwarded-proto'] || 'http';
@@ -154,14 +166,53 @@ router.post('/auth-url', (req, res) => {
     }
 
     const oauth2 = getOAuth2Client(customRedirectUri);
+    const stateObj = { workspace_id: req.workspace ? req.workspace.id : null };
     const url = oauth2.generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
+      state: JSON.stringify(stateObj),
       scope: [
         'https://www.googleapis.com/auth/gmail.send',
         'https://www.googleapis.com/auth/userinfo.email',
       ],
     });
+    res.json({ url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Generate Microsoft OAuth consent URL. */
+router.post('/microsoft-url', async (req, res) => {
+  try {
+    const db = await getDb();
+    const countRow = await db.prepare('SELECT COUNT(*) as count FROM accounts WHERE workspace_id = ?').get(req.workspace.id);
+    const canConnect = await verifyLimit(req.workspace.id, 'connected_mailboxes.max', countRow ? countRow.count : 0);
+    if (!canConnect) {
+      return res.status(403).json({
+        error: 'Mailbox limit reached for your plan. Upgrade your plan to connect additional accounts.',
+        code: 'MAILBOX_LIMIT_EXCEEDED',
+      });
+    }
+
+    const clientId = process.env.MICROSOFT_CLIENT_ID;
+    if (!clientId) {
+      return res.status(400).json({ error: 'Microsoft OAuth is not configured. Set MICROSOFT_CLIENT_ID.' });
+    }
+
+    const redirectUri = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:3000/api/accounts/microsoft/callback';
+    const stateObj = { workspace_id: req.workspace.id };
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      response_type: 'code',
+      redirect_uri: redirectUri,
+      response_mode: 'query',
+      scope: 'https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/User.Read offline_access',
+      state: JSON.stringify(stateObj),
+    });
+
+    const url = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params.toString()}`;
     res.json({ url });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -183,8 +234,23 @@ router.get('/callback', async (req, res) => {
     const { data } = await oauth2Api.userinfo.get();
     const email = data.email;
 
+    let workspaceId = null;
+    if (req.query.state) {
+      try {
+        const parsed = JSON.parse(req.query.state);
+        workspaceId = parsed.workspace_id;
+      } catch (_) {}
+    }
+
     const db = await getDb();
-    const existing = await db.prepare('SELECT id FROM accounts WHERE email = ?').get(email);
+    if (!workspaceId) {
+      const firstWs = await db.prepare('SELECT id FROM workspaces ORDER BY id ASC LIMIT 1').get();
+      if (firstWs) workspaceId = firstWs.id;
+    }
+
+    const existing = await db.prepare('SELECT id FROM accounts WHERE email = ? AND workspace_id = ?').get(email, workspaceId);
+
+    const encRefreshToken = tokens.refresh_token ? encryptSecret(tokens.refresh_token) : null;
 
     if (existing) {
       await db.prepare(`
@@ -194,13 +260,13 @@ router.get('/callback', async (req, res) => {
             token_expiry  = ?,
             status        = 'active',
             type          = 'oauth'
-        WHERE email = ?
-      `).run(tokens.access_token, tokens.refresh_token, tokens.expiry_date, email);
+        WHERE email = ? AND workspace_id = ?
+      `).run(tokens.access_token, encRefreshToken, tokens.expiry_date, email, workspaceId);
     } else {
       await db.prepare(`
-        INSERT INTO accounts (email, access_token, refresh_token, token_expiry, type)
-        VALUES (?, ?, ?, ?, 'oauth')
-      `).run(email, tokens.access_token, tokens.refresh_token, tokens.expiry_date);
+        INSERT INTO accounts (workspace_id, email, access_token, refresh_token, token_expiry, type)
+        VALUES (?, ?, ?, ?, ?, 'oauth')
+      `).run(workspaceId, email, tokens.access_token, encRefreshToken, tokens.expiry_date);
     }
 
     // Return a beautiful self-closing HTML success page
@@ -458,6 +524,98 @@ router.get('/callback', async (req, res) => {
   }
 });
 
+/** Microsoft OAuth callback — exchange code for tokens, save account. */
+router.get('/microsoft/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).json({ error: 'No code provided.' });
+
+  try {
+    const clientId = process.env.MICROSOFT_CLIENT_ID;
+    const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
+    const redirectUri = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:3000/api/accounts/microsoft/callback';
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      grant_type: 'authorization_code',
+      redirect_uri: redirectUri,
+    });
+
+    const tokenRes = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok || !tokenData.access_token) {
+      throw new Error(`Microsoft OAuth error: ${tokenData.error_description || tokenData.error || tokenRes.statusText}`);
+    }
+
+    // Fetch user email from Graph API
+    const userRes = await fetch('https://graph.microsoft.com/v1.0/me', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    const userData = await userRes.json();
+    const email = (userData.mail || userData.userPrincipalName || '').toLowerCase();
+    const displayName = userData.displayName || '';
+
+    let workspaceId = null;
+    if (req.query.state) {
+      try {
+        const parsed = JSON.parse(req.query.state);
+        workspaceId = parsed.workspace_id;
+      } catch (_) {}
+    }
+
+    const db = await getDb();
+    if (!workspaceId) {
+      const firstWs = await db.prepare('SELECT id FROM workspaces ORDER BY id ASC LIMIT 1').get();
+      if (firstWs) workspaceId = firstWs.id;
+    }
+
+    const existing = await db.prepare('SELECT id FROM accounts WHERE email = ? AND workspace_id = ?').get(email, workspaceId);
+    const encRefreshToken = tokenData.refresh_token ? encryptSecret(tokenData.refresh_token) : null;
+    const expiry = Date.now() + (tokenData.expires_in || 3600) * 1000;
+
+    if (existing) {
+      await db.prepare(`
+        UPDATE accounts
+        SET access_token  = ?,
+            refresh_token = COALESCE(?, refresh_token),
+            token_expiry  = ?,
+            status        = 'active',
+            type          = 'microsoft',
+            display_name  = COALESCE(?, display_name)
+        WHERE email = ? AND workspace_id = ?
+      `).run(tokenData.access_token, encRefreshToken, expiry, displayName, email, workspaceId);
+    } else {
+      await db.prepare(`
+        INSERT INTO accounts (workspace_id, email, access_token, refresh_token, token_expiry, type, display_name)
+        VALUES (?, ?, ?, ?, ?, 'microsoft', ?)
+      `).run(workspaceId, email, tokenData.access_token, encRefreshToken, expiry, displayName);
+    }
+
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head><title>Microsoft Account Connected</title></head>
+      <body style="background:#0f172a;color:#fff;font-family:sans-serif;text-align:center;padding:50px;">
+        <h2>Microsoft Outlook Connected!</h2>
+        <p>Account <strong>${email}</strong> linked successfully.</p>
+        <script>
+          try { if (window.opener) window.opener.postMessage({ type: 'MICROSOFT_AUTH_SUCCESS', email: '${email}' }, '*'); } catch (e) {}
+          setTimeout(() => window.close(), 3000);
+        </script>
+      </body>
+      </html>
+    `);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /** Connect a custom SMTP account. */
 router.post('/smtp', async (req, res) => {
   const { email, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, display_name } = req.body;
@@ -478,20 +636,32 @@ router.post('/smtp', async (req, res) => {
     await transport.verify();
 
     const db = await getDb();
-    const existing = await db.prepare('SELECT id FROM accounts WHERE email = ?').get(email);
+    const wsId = req.workspace.id;
+    const countRow = await db.prepare('SELECT COUNT(*) as count FROM accounts WHERE workspace_id = ?').get(wsId);
+    const canConnect = await verifyLimit(wsId, 'connected_mailboxes.max', countRow ? countRow.count : 0);
+    if (!canConnect) {
+      return res.status(403).json({
+        error: 'Mailbox limit reached for your plan. Upgrade your plan to connect additional accounts.',
+        code: 'MAILBOX_LIMIT_EXCEEDED',
+      });
+    }
+
+    const encPass = encryptSecret(smtp_pass);
+
+    const existing = await db.prepare('SELECT id FROM accounts WHERE email = ? AND workspace_id = ?').get(email, wsId);
 
     if (existing) {
       await db.prepare(`
         UPDATE accounts
         SET type = 'smtp', smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?,
             smtp_secure = ?, display_name = COALESCE(?, display_name), status = 'active'
-        WHERE email = ?
-      `).run(smtp_host, smtp_port || 587, smtp_user, smtp_pass, smtp_secure ? 1 : 0, display_name || '', email);
+        WHERE email = ? AND workspace_id = ?
+      `).run(smtp_host, smtp_port || 587, smtp_user, encPass, smtp_secure ? 1 : 0, display_name || '', email, wsId);
     } else {
       await db.prepare(`
-        INSERT INTO accounts (email, type, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, display_name)
-        VALUES (?, 'smtp', ?, ?, ?, ?, ?, ?)
-      `).run(email, smtp_host, smtp_port || 587, smtp_user, smtp_pass, smtp_secure ? 1 : 0, display_name || '');
+        INSERT INTO accounts (workspace_id, email, type, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, display_name)
+        VALUES (?, ?, 'smtp', ?, ?, ?, ?, ?, ?)
+      `).run(wsId, email, smtp_host, smtp_port || 587, smtp_user, encPass, smtp_secure ? 1 : 0, display_name || '');
     }
 
     res.json({ success: true, message: `SMTP account ${email} connected and verified.` });
@@ -504,7 +674,7 @@ router.post('/smtp', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const db = await getDb();
-    await db.prepare('DELETE FROM accounts WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM accounts WHERE id = ? AND workspace_id = ?').run(req.params.id, req.workspace.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -515,7 +685,7 @@ router.delete('/:id', async (req, res) => {
 router.post('/:id/pause', async (req, res) => {
   try {
     const db = await getDb();
-    await db.prepare("UPDATE accounts SET status = 'paused' WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE accounts SET status = 'paused' WHERE id = ? AND workspace_id = ?").run(req.params.id, req.workspace.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -526,7 +696,7 @@ router.post('/:id/pause', async (req, res) => {
 router.post('/:id/resume', async (req, res) => {
   try {
     const db = await getDb();
-    await db.prepare("UPDATE accounts SET status = 'active' WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE accounts SET status = 'active' WHERE id = ? AND workspace_id = ?").run(req.params.id, req.workspace.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -537,7 +707,7 @@ router.post('/:id/resume', async (req, res) => {
 router.post('/:id/reset', async (req, res) => {
   try {
     const db = await getDb();
-    await db.prepare("UPDATE accounts SET daily_sent = 0, last_reset = datetime('now') WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE accounts SET daily_sent = 0, last_reset = datetime('now') WHERE id = ? AND workspace_id = ?").run(req.params.id, req.workspace.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -549,7 +719,7 @@ router.put('/:id/display-name', async (req, res) => {
   const { display_name } = req.body;
   try {
     const db = await getDb();
-    await db.prepare("UPDATE accounts SET display_name = ? WHERE id = ?").run(display_name || '', req.params.id);
+    await db.prepare("UPDATE accounts SET display_name = ? WHERE id = ? AND workspace_id = ?").run(display_name || '', req.params.id, req.workspace.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -563,7 +733,8 @@ router.post('/:id/test', async (req, res) => {
 
   try {
     const db = await getDb();
-    const account = await db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id);
+    const wsId = req.workspace.id;
+    const account = await db.prepare('SELECT * FROM accounts WHERE id = ? AND workspace_id = ?').get(req.params.id, wsId);
     if (!account) return res.status(404).json({ error: 'Account not found.' });
 
     if (account.type === 'smtp') {
@@ -603,11 +774,12 @@ router.post('/send-direct', async (req, res) => {
 
   try {
     const db = await getDb();
+    const wsId = req.workspace.id;
     let account;
     if (account_id) {
-      account = await db.prepare("SELECT * FROM accounts WHERE id = ? AND status = 'active'").get(account_id);
+      account = await db.prepare("SELECT * FROM accounts WHERE id = ? AND status = 'active' AND workspace_id = ?").get(account_id, wsId);
     } else {
-      account = await db.prepare("SELECT * FROM accounts WHERE status = 'active' ORDER BY id ASC LIMIT 1").get();
+      account = await db.prepare("SELECT * FROM accounts WHERE status = 'active' AND workspace_id = ? ORDER BY id ASC LIMIT 1").get(wsId);
     }
 
     if (!account) {
@@ -637,11 +809,11 @@ router.post('/send-direct', async (req, res) => {
     }
 
     // Update account daily count & write to logs table
-    await db.prepare('UPDATE accounts SET daily_sent = daily_sent + 1 WHERE id = ?').run(account.id);
+    await db.prepare('UPDATE accounts SET daily_sent = daily_sent + 1 WHERE id = ? AND workspace_id = ?').run(account.id, wsId);
     await db.prepare(`
-      INSERT INTO logs (account_id, recipient_email, status, message)
-      VALUES (?, ?, 'sent', ?)
-    `).run(account.id, to, `Direct email sent to ${to}`);
+      INSERT INTO logs (workspace_id, account_id, recipient_email, status, message)
+      VALUES (?, ?, ?, 'sent', ?)
+    `).run(wsId, account.id, to, `Direct email sent to ${to}`);
 
     res.json({ success: true, message: `Email sent immediately to ${to} via ${account.email}.` });
   } catch (err) {

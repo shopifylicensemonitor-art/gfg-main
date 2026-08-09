@@ -45,9 +45,35 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const token = localStorage.getItem("auth_token");
+  const [checking, setChecking] = useState(true);
+  const [authenticated, setAuthenticated] = useState(false);
 
-  if (!token) {
+  useEffect(() => {
+    api.getCurrentUser()
+      .then((user) => {
+        if (user && user.id) {
+          setAuthenticated(true);
+        } else {
+          setAuthenticated(false);
+        }
+      })
+      .catch(() => {
+        setAuthenticated(false);
+      })
+      .finally(() => {
+        setChecking(false);
+      });
+  }, []);
+
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-400 text-sm font-medium">
+        Authenticating session...
+      </div>
+    );
+  }
+
+  if (!authenticated) {
     return <Navigate to="/login" replace />;
   }
 
@@ -68,16 +94,6 @@ const App = () => {
     // Initialize Microsoft Clarity tracking in production environments
     if (import.meta.env.PROD) {
       clarity.init(CLARITY_PROJECT_ID);
-    }
-
-    // Capture JWT token from OAuth callback redirect
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get("token");
-    if (token) {
-      localStorage.setItem("auth_token", token);
-      const cleanUrl = `${window.location.pathname}${window.location.hash}`;
-      window.history.replaceState({}, "", cleanUrl);
-      navigateToRoute(window.location.pathname + window.location.hash, { replace: true });
     }
   }, []);
 

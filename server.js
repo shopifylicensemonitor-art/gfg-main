@@ -1,7 +1,7 @@
 /**
- * server.js — Standalone Node entry point for Peak Xender backend.
+ * server.js — Standalone Express API entry point for Peak Xender.
  *
- * Starts the HTTP server and background email scheduler.
+ * Starts the HTTP server. Background email sending is decoupled into worker.js.
  */
 
 require('dotenv').config();
@@ -18,26 +18,18 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'gfg-main', 'dist', 'index.html'));
 });
 
-const { stopScheduler } = require('./scheduler');
-
 let server;
 let isShuttingDown = false;
 
 async function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  logger.info(`Received ${signal}. Starting graceful shutdown...`);
+  logger.info(`Received ${signal}. Starting graceful shutdown of HTTP API server...`);
 
   if (server) {
     server.close(() => {
       logger.info('HTTP server closed.');
     });
-  }
-
-  try {
-    stopScheduler();
-  } catch (err) {
-    logger.error({ err: err.message }, 'Error stopping scheduler');
   }
 
   try {
@@ -50,7 +42,7 @@ async function gracefulShutdown(signal) {
     logger.error({ err: err.message }, 'Error closing database connections');
   }
 
-  logger.info('Shutdown complete.');
+  logger.info('API Server Shutdown complete.');
   process.exit(0);
 }
 
@@ -72,12 +64,10 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   }
 
   server = app.listen(PORT, () => {
-    logger.info(`Peak Xender server running on http://localhost:${PORT}`);
+    logger.info(`Peak Xender API Server running on http://localhost:${PORT}`);
     localIps.forEach(ip => {
       logger.info(`  Network:   http://${ip}:${PORT}`);
     });
-    logger.info(`API endpoints: http://localhost:${PORT}/api/health`);
+    logger.info(`API Health Check: http://localhost:${PORT}/api/health`);
   });
-
-  require('./scheduler');
 })();

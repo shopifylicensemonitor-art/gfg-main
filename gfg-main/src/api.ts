@@ -177,9 +177,8 @@ export interface InboxMessage {
 
 import { navigateToRoute } from './lib/router';
 
-/** Clear expired token and redirect to login page */
+/** Redirect to login on session expiry (HttpOnly cookie cleared server-side via /api/auth/logout) */
 function handleAuthError() {
-  localStorage.removeItem('auth_token');
   // Only redirect if not already on login or landing page
   const path = window.location.pathname;
   if (path !== '/login' && path !== '/') {
@@ -198,19 +197,7 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
     headers.set('Content-Type', 'application/json');
   }
 
-  // Inject JWT Bearer token from localStorage if present
-  const token = localStorage.getItem('auth_token');
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-
-  // Inject PIN fallback header from sessionStorage if present (used in local/dev)
-  const pin = sessionStorage.getItem('access_pin');
-  if (pin && !headers.has('X-Access-Pin')) {
-    headers.set('X-Access-Pin', pin);
-  }
-
-  const res = await fetch(url, { ...options, headers });
+  const res = await fetch(url, { ...options, headers, credentials: 'include' });
 
   // Global 401 handler: token expired or invalid → clear & redirect
   if (res.status === 401) {
@@ -465,11 +452,7 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(settings),
   }),
-  logout: () => {
-    localStorage.removeItem('auth_token');
-    sessionStorage.removeItem('access_pin');
-    return Promise.resolve({ success: true });
-  },
+  logout: () => apiFetch<{ success: boolean }>('/api/auth/logout', { method: 'POST' }),
 
   // AI Integration
   getAIConfig: () => apiFetch<AIConfig>('/api/ai/config'),
@@ -512,4 +495,18 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ replyBody })
   }),
+
+  // Microsoft OAuth (Outlook / Entra)
+  getMicrosoftAuthUrl: () => apiFetch<{ url: string }>('/api/accounts/microsoft-url', { method: 'POST' }),
+
+  // Manual Send Limits (Free Plan)
+  getManualSendCount: () => apiFetch<{ count: number; dailyLimit: number; remaining: number }>('/api/manual/count'),
+  trackManualSend: (recipientEmail: string, subject?: string) => apiFetch<{ success: boolean; newCount: number }>('/api/manual/track-send', {
+    method: 'POST',
+    body: JSON.stringify({ recipientEmail, subject }),
+  }),
+
+  // Plan & Entitlements
+  getPlanInfo: () => apiFetch<{ plan: string; entitlements: Record<string, string> }>('/api/auth/plan'),
 };
+

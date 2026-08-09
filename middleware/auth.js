@@ -1,26 +1,14 @@
 /**
- * middleware/auth.js — Simple PIN-based authentication.
+ * middleware/auth.js — DEPRECATED.
  *
- * Checks for ?pin= query parameter or X-Access-Pin header.
- * This keeps the dashboard private without a full auth system.
+ * Legacy PIN-based authentication has been removed.
+ * All authentication now goes through middleware/session.js (JWT via cookie or Bearer).
+ *
+ * This file re-exports requireAuth from session.js for backward compatibility
+ * in case any code still imports from this path.
  */
 
-function requirePin(req, res, next) {
-  const pin = process.env.ACCESS_PIN;
+const { requireAuth } = require('./session');
 
-  // If no PIN is configured, skip authentication
-  if (!pin) return next();
-
-  const provided = req.query.pin || req.headers['x-access-pin'];
-
-  if (provided === pin) {
-    return next();
-  }
-
-  return res.status(401).json({
-    error: 'Unauthorized',
-    message: 'Provide ?pin= query parameter or X-Access-Pin header.',
-  });
-}
-
-module.exports = { requirePin };
+// Alias: the old requirePin is now requireAuth (JWT-based).
+module.exports = { requirePin: requireAuth, requireAuth };

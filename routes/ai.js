@@ -1,4 +1,4 @@
-﻿/**
+/**
  * routes/ai.js â€” Universal OpenAI-compatible AI API router for Peak Xender.
  *
  * Supports 10+ providers (OpenRouter, Nvidia NIM, OpenAI, Gemini, Groq, DeepSeek, Together, Ollama, etc.)
@@ -58,9 +58,14 @@ function maskKey(key) {
 }
 
 /** Helper: Fetch active AI configuration from DB */
-async function getActiveAIConfig() {
+async function getActiveAIConfig(workspaceId) {
   const db = await getDb();
-  const row = await db.prepare('SELECT * FROM ai_config ORDER BY id DESC LIMIT 1').get();
+  let row;
+  if (workspaceId) {
+    row = await db.prepare('SELECT * FROM ai_config WHERE workspace_id = ? ORDER BY id DESC LIMIT 1').get(workspaceId);
+  } else {
+    row = await db.prepare('SELECT * FROM ai_config ORDER BY id DESC LIMIT 1').get();
+  }
   if (!row) {
     return null;
   }
@@ -74,15 +79,20 @@ async function getActiveAIConfig() {
 }
 
 /** Helper: Call the configured AI completions endpoint */
-async function callAI(messages, systemOverride = null) {
-  const config = await getActiveAIConfig();
+async function callAI(messages, systemOverride = null, workspaceId = null) {
+  const config = await getActiveAIConfig(workspaceId);
   if (!config || !config.apiKey) {
     throw new Error('AI Provider is not configured yet. Please configure your API key in AI Settings.');
   }
 
   // Fetch AI Rules & Knowledge Base context to append to system instructions
   const db = await getDb();
-  const rulesRows = await db.prepare('SELECT rule_type, content FROM ai_rules').all();
+  let rulesRows = [];
+  if (workspaceId) {
+    rulesRows = await db.prepare('SELECT rule_type, content FROM ai_rules WHERE workspace_id = ?').all(workspaceId);
+  } else {
+    rulesRows = await db.prepare('SELECT rule_type, content FROM ai_rules').all();
+  }
   let rulesContext = '';
   if (rulesRows && rulesRows.length > 0) {
     rulesContext = '\n\n=== BRAND KNOWLEDGE BASE & OUTREACH RULES ===\n' +
@@ -140,10 +150,10 @@ async function callAI(messages, systemOverride = null) {
 // Configuration Routes
 // ---------------------------------------------------------------------------
 
-/** GET /api/ai/config â€” Retrieve current AI config (masked key) */
-router.get('/config', async (_req, res) => {
+/** GET /api/ai/config â€” Get active AI provider config */
+router.get('/config', async (req, res) => {
   try {
-    const config = await getActiveAIConfig();
+    const config = await getActiveAIConfig(req.workspace ? req.workspace.id : null);
     if (!config) {
       return res.json({ configured: false });
     }
@@ -168,17 +178,18 @@ router.post('/config', async (req, res) => {
 
   try {
     const db = await getDb();
+    const wsId = req.workspace.id;
     const cleanBaseUrl = (baseUrl || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
     const cleanModel = model || 'openai/gpt-4o-mini';
     const encKey = encryptKey(apiKey.trim());
 
-    const existing = await db.prepare('SELECT id FROM ai_config ORDER BY id DESC LIMIT 1').get();
+    const existing = await db.prepare('SELECT id FROM ai_config WHERE workspace_id = ? ORDER BY id DESC LIMIT 1').get(wsId);
     if (existing) {
-      await db.prepare('UPDATE ai_config SET provider = ?, api_key_encrypted = ?, base_url = ?, model = ?, updated_at = datetime(\'now\') WHERE id = ?')
-        .run(provider || 'custom', encKey, cleanBaseUrl, cleanModel, existing.id);
+      await db.prepare('UPDATE ai_config SET provider = ?, api_key_encrypted = ?, base_url = ?, model = ?, updated_at = datetime(\'now\') WHERE id = ? AND workspace_id = ?')
+        .run(provider || 'custom', encKey, cleanBaseUrl, cleanModel, existing.id, wsId);
     } else {
-      await db.prepare('INSERT INTO ai_config (provider, api_key_encrypted, base_url, model) VALUES (?, ?, ?, ?)')
-        .run(provider || 'custom', encKey, cleanBaseUrl, cleanModel);
+      await db.prepare('INSERT INTO ai_config (workspace_id, provider, api_key_encrypted, base_url, model) VALUES (?, ?, ?, ?, ?)')
+        .run(wsId, provider || 'custom', encKey, cleanBaseUrl, cleanModel);
     }
 
     res.json({ success: true, message: 'AI Provider settings saved successfully.' });
@@ -188,11 +199,11 @@ router.post('/config', async (req, res) => {
 });
 
 /** POST /api/ai/test â€” Test the AI connection */
-router.post('/test', async (_req, res) => {
+router.post('/test', async (req, res) => {
   try {
     const response = await callAI([
       { role: 'user', content: 'Say "Peak Xender AI connection test successful!"' }
-    ]);
+    ], null, req.workspace ? req.workspace.id : null);
     res.json({ success: true, response });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -204,10 +215,10 @@ router.post('/test', async (_req, res) => {
 // ---------------------------------------------------------------------------
 
 /** GET /api/ai/rules â€” Get all AI stage rules */
-router.get('/rules', async (_req, res) => {
+router.get('/rules', async (req, res) => {
   try {
     const db = await getDb();
-    const rules = await db.prepare('SELECT rule_type, content FROM ai_rules').all();
+    const rules = await db.prepare('SELECT rule_type, content FROM ai_rules WHERE workspace_id = ?').all(req.workspace.id);
     const rulesMap = {};
     rules.forEach(r => { rulesMap[r.rule_type] = r.content; });
     res.json(rulesMap);
@@ -225,14 +236,15 @@ router.post('/rules', async (req, res) => {
 
   try {
     const db = await getDb();
+    const wsId = req.workspace.id;
     for (const [ruleType, content] of Object.entries(rules)) {
-      const existing = await db.prepare('SELECT id FROM ai_rules WHERE rule_type = ?').get(ruleType);
+      const existing = await db.prepare('SELECT id FROM ai_rules WHERE rule_type = ? AND workspace_id = ?').get(ruleType, wsId);
       if (existing) {
-        await db.prepare('UPDATE ai_rules SET content = ?, updated_at = datetime(\'now\') WHERE rule_type = ?')
-          .run(String(content || ''), ruleType);
+        await db.prepare('UPDATE ai_rules SET content = ?, updated_at = datetime(\'now\') WHERE rule_type = ? AND workspace_id = ?')
+          .run(String(content || ''), ruleType, wsId);
       } else {
-        await db.prepare('INSERT INTO ai_rules (rule_type, content) VALUES (?, ?)')
-          .run(ruleType, String(content || ''));
+        await db.prepare('INSERT INTO ai_rules (workspace_id, rule_type, content) VALUES (?, ?, ?)')
+          .run(wsId, ruleType, String(content || ''));
       }
     }
     res.json({ success: true, message: 'AI Rules updated successfully.' });

@@ -17,6 +17,7 @@ const router = express.Router();
 const { getDb } = require('../db');
 const logger = require('../logger');
 const { processNextItem, personalise, completeCampaignIfNoActiveQueue } = require('../scheduler');
+const { requireEntitlement } = require('../middleware/entitlements');
 
 function createDefaultCampaignContent(subject, bodyHtml, bodyPlain) {
   const normalizedSubject = typeof subject === 'string' && subject.trim() ? subject.trim() : 'Untitled campaign';
@@ -96,7 +97,7 @@ function shuffleArray(array) {
 }
 
 /** List all campaigns. */
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = await getDb();
     const campaigns = await db.prepare(`
@@ -105,9 +106,10 @@ router.get('/', async (_req, res) => {
              COALESCE(SUM(q.clicks_count), 0) as total_clicks
       FROM campaigns c
       LEFT JOIN queue q ON c.id = q.campaign_id
+      WHERE c.workspace_id = ?
       GROUP BY c.id
       ORDER BY c.created_at DESC
-    `).all();
+    `).all(req.workspace.id);
     res.json(campaigns);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -118,7 +120,7 @@ router.get('/', async (_req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const db = await getDb();
-    const campaign = await db.prepare('SELECT * FROM campaigns WHERE id = ?').get(req.params.id);
+    const campaign = await db.prepare('SELECT * FROM campaigns WHERE id = ? AND workspace_id = ?').get(req.params.id, req.workspace.id);
     if (!campaign) return res.status(404).json({ error: 'Not found.' });
 
     // Attach steps
@@ -152,7 +154,7 @@ router.get('/:id', async (req, res) => {
 });
 
 /** Create a new campaign. */
-router.post('/', async (req, res) => {
+router.post('/', requireEntitlement('automation.enabled'), async (req, res) => {
   const {
     name, subject, body_html, body_plain,
     contact_list, delay_seconds = 30,
@@ -168,23 +170,24 @@ router.post('/', async (req, res) => {
 
   try {
     const db = await getDb();
+    const wsId = req.workspace.id;
     const resolvedContactList = contact_list || `campaign-${Date.now()}`;
     const content = createDefaultCampaignContent(subject, body_html, body_plain);
 
     // Count contacts in the specified list when one is provided.
     const countRow = resolvedContactList
-      ? await db.prepare('SELECT COUNT(*) as total FROM contacts WHERE list_name = ?').get(resolvedContactList)
+      ? await db.prepare('SELECT COUNT(*) as total FROM contacts WHERE list_name = ? AND workspace_id = ?').get(resolvedContactList, wsId)
       : null;
 
     const createBoth = db.transaction(async (txDb) => {
       const result = await txDb.prepare(`
         INSERT INTO campaigns
-          (name, subject, body_html, body_plain, contact_list,
+          (workspace_id, name, subject, body_html, body_plain, contact_list,
            delay_seconds, start_time, end_time, total_contacts,
            content_variations, content_mode, send_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        name, content.subject, content.body_html, content.body_plain,
+        wsId, name, content.subject, content.body_html, content.body_plain,
         resolvedContactList, delay_seconds, start_time, end_time,
         countRow ? countRow.total : 0,
         content_variations ? JSON.stringify(content_variations) : null,
@@ -196,9 +199,9 @@ router.post('/', async (req, res) => {
       if (steps && Array.isArray(steps)) {
         for (const step of steps) {
           await txDb.prepare(`
-            INSERT INTO campaign_steps (campaign_id, step_number, subject, body_html, body_plain, delay_seconds)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `).run(campaignId, step.step_number, step.subject, step.body_html || '', step.body_plain || '', step.delay_seconds || 86400);
+            INSERT INTO campaign_steps (workspace_id, campaign_id, step_number, subject, body_html, body_plain, delay_seconds)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(wsId, campaignId, step.step_number, step.subject, step.body_html || '', step.body_plain || '', step.delay_seconds || 86400);
         }
       }
 
@@ -554,7 +557,7 @@ router.post('/:id/launch', async (req, res) => {
 router.post('/:id/pause', async (req, res) => {
   try {
     const db = await getDb();
-    await db.prepare("UPDATE campaigns SET status = 'paused' WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE campaigns SET status = 'paused' WHERE id = ? AND workspace_id = ?").run(req.params.id, req.workspace.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -565,7 +568,7 @@ router.post('/:id/pause', async (req, res) => {
 router.post('/:id/resume', async (req, res) => {
   try {
     const db = await getDb();
-    await db.prepare("UPDATE campaigns SET status = 'sending' WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE campaigns SET status = 'sending' WHERE id = ? AND workspace_id = ?").run(req.params.id, req.workspace.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

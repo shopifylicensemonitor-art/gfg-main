@@ -1,0 +1,84 @@
+# render.yaml — Render Blueprint for Peak Xender
+# Deploy: connect this repo in Render → "New Blueprint Instance"
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # ── Web Service (Express API + static SPA) ──────────────────────────────── #
+  - type: web
+    name: peak-xender-web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerCommand: node server.js
+    region: oregon          # us-west-2; change to closest to your users
+    plan: starter           # $7/month always-on — upgrade to standard for more RAM
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: peak-xender-db
+          property: connectionString
+      # Inject secrets from Render dashboard (or from environment groups below)
+      - key: SESSION_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: MICROSOFT_CLIENT_ID
+        sync: false
+      - key: MICROSOFT_CLIENT_SECRET
+        sync: false
+      - key: MICROSOFT_REDIRECT_URI
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: TRACKING_BASE_URL
+        sync: false
+    autoDeploy: true
+
+  # ── Background Worker (Scheduler / Queue Processor) ─────────────────────── #
+  - type: worker
+    name: peak-xender-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerCommand: node worker.js
+    region: oregon
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: peak-xender-db
+          property: connectionString
+      - key: SESSION_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: MICROSOFT_CLIENT_ID
+        sync: false
+      - key: MICROSOFT_CLIENT_SECRET
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: TRACKING_BASE_URL
+        sync: false
+    autoDeploy: true
+
+# ── Managed PostgreSQL ─────────────────────────────────────────────────────── #
+databases:
+  - name: peak-xender-db
+    databaseName: peakxender
+    user: peakxender_admin
+    region: oregon
+    plan: starter           # 1 GB storage / 256 MB RAM — upgrade as you grow

@@ -1,15 +1,15 @@
 /**
- * scheduler.js — Background email worker.
+ * scheduler.js — Production Queue Processor & Email Engine.
  *
- * Runs every 30 seconds via node-cron.
- * Picks the next pending queue item, checks the sending window,
- * sends the email via Gmail API, and updates the queue/campaign status.
- *
- * Round-robin account rotation is pre-assigned at campaign launch time,
- * so this worker just processes each item with its assigned account.
+ * Implements:
+ *   1. Atomic PostgreSQL queue claiming via FOR UPDATE SKIP LOCKED
+ *   2. Stale job recovery for timed-out worker leases
+ *   3. Controlled retries with exponential backoff
+ *   4. Campaign sending window & account daily limit enforcement
+ *   5. Personalisation, Spintax, and Tracking Pixel injection
+ *   6. Multi-step campaign progression
  */
 
-const cron = require('node-cron');
 const { google } = require('googleapis');
 const { getDb } = require('./db');
 const logger = require('./logger');
@@ -31,7 +31,7 @@ const { parseSpintax } = require('./execution/spintax');
  * Check if the current time is within the campaign's allowed sending window.
  */
 function isWithinSendingWindow(campaign) {
-  if (campaign.ignore_window || campaign.start_time === '00:00' && (campaign.end_time === '23:59' || campaign.end_time === '24:00')) {
+  if (campaign.ignore_window || (campaign.start_time === '00:00' && (campaign.end_time === '23:59' || campaign.end_time === '24:00'))) {
     return true;
   }
   const now = new Date();
@@ -56,27 +56,20 @@ function isWithinSendingWindow(campaign) {
 }
 
 // ---------------------------------------------------------------------------
-// Content variation (spintax-like rotation)
+// Content variation & Spintax personalisation
 // ---------------------------------------------------------------------------
 
-/**
- * If campaign has content_variations, pick one based on the queue item index.
- * Returns { subject, body_html }.
- */
 function getContent(campaign, queueItem) {
   const subject = campaign.c_subject || campaign.subject;
   const body_html = campaign.c_body_html || campaign.body_html;
   if (campaign.content_mode !== 'rotation' || !campaign.content_variations) {
-    return {
-      subject: subject,
-      body_html: body_html,
-    };
+    return { subject, body_html };
   }
 
   try {
     const variations = JSON.parse(campaign.content_variations);
     if (!Array.isArray(variations) || variations.length === 0) {
-      return { subject: subject, body_html: body_html };
+      return { subject, body_html };
     }
     const index = (queueItem.id - 1) % variations.length;
     const v = variations[index];
@@ -85,21 +78,15 @@ function getContent(campaign, queueItem) {
       body_html: v.body_html || body_html,
     };
   } catch {
-    return { subject: subject, body_html: body_html };
+    return { subject, body_html };
   }
 }
 
-/**
- * Simple template variable replacement.
- * Supports {{email}} and {{date}}.
- */
 function personalise(text, recipient, fieldsStr, accountDisplayName) {
   if (!text) return text;
 
-  // 1. Run Spintax resolution
   let result = parseSpintax(text);
 
-  // 2. Parse fields JSON
   let fields = {};
   if (fieldsStr) {
     try {
@@ -109,7 +96,6 @@ function personalise(text, recipient, fieldsStr, accountDisplayName) {
     }
   }
 
-  // Get local part and domain part of email
   const [localPart, domainPart] = recipient ? recipient.split('@') : ['', ''];
   const pSname = domainPart ? domainPart.split('.')[0] : '';
   const displayName = fields.first_name || fields.name || fields.firstName || localPart || '';
@@ -123,7 +109,6 @@ function personalise(text, recipient, fieldsStr, accountDisplayName) {
   const resolveVar = (key) => {
     const normKey = key.trim().toLowerCase();
 
-    // Check built-in or fallbacks
     if (normKey === 'email') return recipient || '';
     if (normKey === 'date') return now;
     if (normKey === 'name' || normKey === 'first_name' || normKey === 'firstname') return displayName;
@@ -131,11 +116,9 @@ function personalise(text, recipient, fieldsStr, accountDisplayName) {
     if (normKey === 'sname') return pSname;
     if (normKey === 'brand') return brandName;
 
-    // Direct lookups in custom fields
     if (fields && fields[normKey] !== undefined && fields[normKey] !== null) return String(fields[normKey]);
     if (fields && fields[key] !== undefined && fields[key] !== null) return String(fields[key]);
 
-    // Case-insensitive fallback lookup
     if (fields && typeof fields === 'object') {
       const matchKey = Object.keys(fields).find(k => k.toLowerCase() === normKey);
       if (matchKey && fields[matchKey] !== undefined && fields[matchKey] !== null) {
@@ -143,30 +126,20 @@ function personalise(text, recipient, fieldsStr, accountDisplayName) {
       }
     }
 
-    // Return empty string to cleanly omit missing placeholder
     return '';
   };
 
-  // 3. Dynamic double curly brace {{variable}} replacements
   result = result.replace(/\{\{([^{}]+)\}\}/g, (_, key) => resolveVar(key));
-
-  // 4. Dynamic single curly brace {variable} replacements (excluding spintax containing pipe '|')
   result = result.replace(/\{([a-zA-Z0-9_\-\s]+)\}/g, (_, key) => resolveVar(key));
 
   return result;
 }
 
-/**
- * Parses the HTML email body, wraps outbound links in redirect tracking URLs,
- * and appends a hidden 1x1 image tracking pixel.
- */
 function injectTracking(bodyHtml, queueItemId) {
   if (!bodyHtml) return bodyHtml;
   const baseUrl = process.env.TRACKING_BASE_URL || 'http://localhost:3000';
 
-  // Match href="url" or href='url'
   let trackedBody = bodyHtml.replace(/href=(["'])([^"'\s>]+)\1/gi, (match, quote, url) => {
-    // Skip anchor tags, email links, phone links, and existing track routes
     if (url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('tel:') || url.includes('/api/track/')) {
       return match;
     }
@@ -174,7 +147,6 @@ function injectTracking(bodyHtml, queueItemId) {
     return `href=${quote}${wrappedUrl}${quote}`;
   });
 
-  // Inject open tracking pixel
   const pixelUrl = `${baseUrl}/api/track/open/${queueItemId}`;
   const pixelTag = `<img src="${pixelUrl}" width="1" height="1" alt="" style="display:none;" />`;
 
@@ -188,7 +160,7 @@ function injectTracking(bodyHtml, queueItemId) {
 }
 
 // ---------------------------------------------------------------------------
-// Send one email
+// Send single email via provider
 // ---------------------------------------------------------------------------
 
 async function sendEmail(account, to, subject, bodyHtml) {
@@ -196,14 +168,12 @@ async function sendEmail(account, to, subject, bodyHtml) {
     ? `"${account.display_name}" <${account.email}>`
     : account.email;
 
-  // RFC 8058 List-Unsubscribe headers (required by Gmail for bulk senders)
   const unsubEmail = `unsubscribe+${to.replace('@', '=')}@${account.email.split('@')[1]}`;
   const unsubHeader = `<mailto:${unsubEmail}?subject=unsubscribe>`;
 
   if (account.type === 'smtp') {
-    // Send via Nodemailer SMTP transport
     const transport = createSmtpTransport(account);
-    await transport.sendMail({
+    const info = await transport.sendMail({
       from: fromAddr,
       to,
       subject,
@@ -213,8 +183,8 @@ async function sendEmail(account, to, subject, bodyHtml) {
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
     });
+    return info.messageId || null;
   } else {
-    // Send via Gmail API (OAuth)
     const accessToken = await ensureFreshToken(account);
     const oauth2 = getOAuth2Client();
     oauth2.setCredentials({ access_token: accessToken });
@@ -225,265 +195,325 @@ async function sendEmail(account, to, subject, bodyHtml) {
       'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
     });
 
-    await gmail.users.messages.send({
+    const res = await gmail.users.messages.send({
       userId: 'me',
       requestBody: { raw },
     });
+    return res.data.id || null;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Process one queue item
+// Stale Job Recovery
 // ---------------------------------------------------------------------------
 
-async function processNextItem() {
+/**
+ * Reclaim queue jobs that were locked by a worker process that crashed or timed out (> 5 min ago).
+ */
+async function recoverStaleJobs() {
+  try {
+    const db = await getDb();
+    if (db._isPg) {
+      const res = await db.prepare(`
+        UPDATE queue
+        SET status = 'pending', locked_at = NULL, locked_by = NULL
+        WHERE status = 'processing'
+          AND locked_at < NOW() - INTERVAL '5 minutes'
+      `).run();
+      return res.changes || 0;
+    } else {
+      const res = await db.prepare(`
+        UPDATE queue
+        SET status = 'pending', locked_at = NULL, locked_by = NULL
+        WHERE status = 'processing'
+      `).run();
+      return res.changes || 0;
+    }
+  } catch (err) {
+    logger.error({ err: err.message }, 'Failed to recover stale jobs');
+    return 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Production Queue Batch Processor (Atomic row locking)
+// ---------------------------------------------------------------------------
+
+/**
+ * Claim and process a batch of due queue items for a given worker.
+ */
+async function processQueueBatch(workerId = 'worker-1') {
   let db;
   try {
     db = await getDb();
   } catch (err) {
-    logger.error({ err }, 'DB not ready');
-    return;
+    logger.error({ err: err.message }, 'DB connection unavailable in worker');
+    return 0;
   }
 
   const BATCH_SIZE = parseInt(process.env.SCHEDULER_BATCH_SIZE, 10) || 10;
-  const nowIso = new Date().toISOString();
+  let items = [];
 
-  // Find the next pending items whose scheduled time has passed
-  const items = await db.prepare(`
-    SELECT q.*, c.status as campaign_status,
-           c.subject as c_subject, c.body_html as c_body_html,
-           c.start_time, c.end_time,
-           c.content_variations, c.content_mode
-    FROM queue q
-    JOIN campaigns c ON q.campaign_id = c.id
-    WHERE q.status = 'pending'
-      AND c.status = 'sending'
-      AND q.scheduled_at <= ?
-    ORDER BY q.scheduled_at ASC
-    LIMIT ?
-  `).all(nowIso, BATCH_SIZE);
+  if (db._isPg) {
+    // Production PostgreSQL: Atomic row-level claim with FOR UPDATE SKIP LOCKED
+    try {
+      const claimedItems = await db.transaction(async (tx) => {
+        const rows = await tx.prepare(`
+          SELECT q.id, q.workspace_id, q.campaign_id, q.recipient_email, q.account_id,
+                 q.step_number, q.campaign_step_id, q.attempts, q.retry_count, q.fields,
+                 c.status as campaign_status, c.subject as c_subject, c.body_html as c_body_html,
+                 c.start_time, c.end_time, c.content_variations, c.content_mode
+          FROM queue q
+          JOIN campaigns c ON q.campaign_id = c.id
+          WHERE q.status IN ('pending', 'retrying')
+            AND c.status = 'sending'
+            AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
+            AND (q.next_attempt_at IS NULL OR q.next_attempt_at <= NOW())
+          ORDER BY q.scheduled_at ASC NULLS FIRST, q.id ASC
+          FOR UPDATE SKIP LOCKED
+          LIMIT $1
+        `).all(BATCH_SIZE);
 
-  if (!items || items.length === 0) {
+        if (!rows || rows.length === 0) return [];
+
+        const ids = rows.map(r => r.id);
+        const placeholders = ids.map((_, i) => `$${i + 2}`).join(',');
+        await tx.prepare(`
+          UPDATE queue
+          SET status = 'processing',
+              locked_at = NOW(),
+              locked_by = $1
+          WHERE id IN (${placeholders})
+        `).run(workerId, ...ids);
+
+        return rows;
+      })();
+      items = claimedItems || [];
+    } catch (err) {
+      logger.error({ err: err.message }, 'PostgreSQL SKIP LOCKED claim error');
+      return 0;
+    }
+  } else {
+    // Fallback SQLite mode: claim items in a transaction
+    try {
+      const nowIso = new Date().toISOString();
+      const claimedItems = await db.transaction(async (tx) => {
+        const rows = await tx.prepare(`
+          SELECT q.id, q.workspace_id, q.campaign_id, q.recipient_email, q.account_id,
+                 q.step_number, q.campaign_step_id, q.attempts, q.retry_count, q.fields,
+                 c.status as campaign_status, c.subject as c_subject, c.body_html as c_body_html,
+                 c.start_time, c.end_time, c.content_variations, c.content_mode
+          FROM queue q
+          JOIN campaigns c ON q.campaign_id = c.id
+          WHERE q.status IN ('pending', 'retrying')
+            AND c.status = 'sending'
+            AND (q.scheduled_at IS NULL OR q.scheduled_at <= ?)
+          ORDER BY q.id ASC
+          LIMIT ?
+        `).all(nowIso, BATCH_SIZE);
+
+        if (!rows || rows.length === 0) return [];
+
+        for (const r of rows) {
+          await tx.prepare("UPDATE queue SET status = 'processing', locked_by = ? WHERE id = ?").run(workerId, r.id);
+        }
+        return rows;
+      })();
+      items = claimedItems || [];
+    } catch (err) {
+      logger.error({ err: err.message }, 'SQLite queue claim error');
+      return 0;
+    }
+  }
+
+  if (items.length === 0) {
     await completeEmptySendingCampaigns(db);
-    return;
+    return 0;
   }
 
-  const accountSentInBatch = {};
+  let processedCount = 0;
 
-  // Process items grouped by account to avoid race conditions on account counters.
-  const concurrency = parseInt(process.env.SENDER_CONCURRENCY || '3', 10) || 3;
-  const groups = new Map();
   for (const item of items) {
-    const key = String(item.account_id || 'null');
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(item);
-  }
+    // Check sending window
+    if (!isWithinSendingWindow(item)) {
+      // Outside hours — unlock item back to pending
+      await db.prepare("UPDATE queue SET status = 'pending', locked_at = NULL, locked_by = NULL WHERE id = ?").run(item.id);
+      continue;
+    }
 
-  const groupEntries = Array.from(groups.entries());
-  let idx = 0;
+    // Check sender account
+    const account = await db.prepare('SELECT * FROM accounts WHERE id = ?').get(item.account_id);
+    if (!account || account.status !== 'active') {
+      await db.prepare(`
+        UPDATE queue
+        SET status = 'failed', error = 'Account inactive or missing', locked_at = NULL, locked_by = NULL
+        WHERE id = ?
+      `).run(item.id);
+      await db.prepare('UPDATE campaigns SET failed_count = failed_count + 1 WHERE id = ?').run(item.campaign_id);
+      await logEvent(db, item.workspace_id, item.campaign_id, item.account_id, item.recipient_email, 'failed', 'Account inactive or missing', item.id);
+      continue;
+    }
 
-  async function processGroup(_accountIdKey, groupItems) {
-    for (const item of groupItems) {
-      // Check sending window
-      if (!isWithinSendingWindow(item)) {
-        continue; // Outside allowed hours, skip this one
-      }
+    // Check daily send limit
+    const dailyLimit = account.daily_limit !== null && account.daily_limit !== undefined ? account.daily_limit : 450;
+    if ((account.daily_sent || 0) >= dailyLimit) {
+      logger.info({ email: account.email, dailyLimit, itemId: item.id }, 'Account daily limit reached. Rescheduling to tomorrow');
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      await db.prepare(`
+        UPDATE queue
+        SET status = 'pending', scheduled_at = ?, locked_at = NULL, locked_by = NULL
+        WHERE id = ?
+      `).run(tomorrow.toISOString(), item.id);
+      continue;
+    }
 
-      // Get the assigned sender account
-      const account = await db.prepare('SELECT * FROM accounts WHERE id = ?').get(item.account_id);
-      if (!account || account.status !== 'active') {
-        // Mark as failed — no valid account
-        await db.prepare("UPDATE queue SET status = 'failed', error = 'Account inactive or missing' WHERE id = ?").run(item.id);
-        await db.prepare('UPDATE campaigns SET failed_count = failed_count + 1 WHERE id = ?').run(item.campaign_id);
-        await logEvent(db, item.campaign_id, item.account_id, item.recipient_email, 'failed', 'Account inactive or missing', item.id);
-        continue;
-      }
+    // Check if recipient unsubscribed or replied
+    const recipientTracker = await db.prepare(
+      'SELECT status FROM campaign_recipients WHERE campaign_id = ? AND recipient_email = ?'
+    ).get(item.campaign_id, item.recipient_email);
 
-      // Check daily send limit (default limit is 450)
-      const dailyLimit = account.daily_limit !== null && account.daily_limit !== undefined ? account.daily_limit : 450;
-      const currentSent = account.daily_sent + (accountSentInBatch[account.id] || 0);
-      if (currentSent >= dailyLimit) {
-        logger.info({ email: account.email, dailyLimit, itemId: item.id }, 'Account daily limit hit. Rescheduling queue item to tomorrow');
-        // Reschedule to tomorrow (add 1 day)
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        await db.prepare("UPDATE queue SET scheduled_at = ? WHERE id = ?").run(tomorrow.toISOString(), item.id);
-        continue;
-      }
+    if (recipientTracker && (recipientTracker.status === 'replied' || recipientTracker.status === 'unsubscribed')) {
+      await db.prepare("DELETE FROM queue WHERE id = ?").run(item.id);
+      logger.info({ recipient: item.recipient_email, campaignId: item.campaign_id }, 'Skipping email send: recipient replied or unsubscribed');
+      await completeCampaignIfNoActiveQueue(db, item.campaign_id);
+      continue;
+    }
 
-      // Check if recipient has replied or unsubscribed in this campaign
-      const recipientTracker = await db.prepare('SELECT status FROM campaign_recipients WHERE campaign_id = ? AND recipient_email = ?').get(item.campaign_id, item.recipient_email);
-      if (recipientTracker && (recipientTracker.status === 'replied' || recipientTracker.status === 'unsubscribed')) {
-        // Delete from queue directly and skip
-        await db.prepare("DELETE FROM queue WHERE id = ?").run(item.id);
-        logger.info({ recipient: item.recipient_email, campaignId: item.campaign_id }, 'Skipping email send: recipient replied or unsubscribed');
-        await completeCampaignIfNoActiveQueue(db, item.campaign_id);
-        continue;
-      }
-
-      // Reserve a send slot atomically and mark as sending in the same DB transaction.
-      // This prevents race conditions under high concurrency.
-      let reserved = false;
-      try {
-        reserved = await db.transaction(async (tx) => {
-          const accRow = await tx.prepare('SELECT daily_sent, daily_limit FROM accounts WHERE id = ?').get(account.id);
-          if (!accRow) return false;
-          const limit = accRow.daily_limit !== null && accRow.daily_limit !== undefined ? accRow.daily_limit : 450;
-          if ((accRow.daily_sent || 0) >= limit) {
-            return false;
-          }
-          // Increment the counter and mark queue item as sending atomically
-          await tx.prepare('UPDATE accounts SET daily_sent = daily_sent + 1 WHERE id = ?').run(account.id);
-          await tx.prepare("UPDATE queue SET status = 'sending' WHERE id = ?").run(item.id);
-          return true;
-        })();
-      } catch (txErr) {
-        logger.error({ err: txErr, account: account.id, item: item.id }, 'Error reserving send slot');
-        reserved = false;
-      }
-
-      if (!reserved) {
-        // Could not reserve a slot — reschedule or mark appropriately
-        logger.info({ accountId: account.id, itemId: item.id }, 'Account daily limit reached or reservation failed; rescheduling item');
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        await db.prepare("UPDATE queue SET scheduled_at = ? WHERE id = ?").run(tomorrow.toISOString(), item.id);
-        continue;
-      }
-      // Track in-memory as well for the current batch
-      accountSentInBatch[account.id] = (accountSentInBatch[account.id] || 0) + 1;
-
-      try {
-        // Get content: load from step table if campaign_step_id is present, otherwise fallback to main campaign fields
-        let subject, body_html;
-        if (item.campaign_step_id) {
-          const step = await db.prepare('SELECT subject, body_html FROM campaign_steps WHERE id = ?').get(item.campaign_step_id);
-          if (step) {
-            subject = step.subject;
-            body_html = step.body_html;
-          }
+    // Send email
+    try {
+      let subject, body_html;
+      if (item.campaign_step_id) {
+        const step = await db.prepare('SELECT subject, body_html FROM campaign_steps WHERE id = ?').get(item.campaign_step_id);
+        if (step) {
+          subject = step.subject;
+          body_html = step.body_html;
         }
+      }
 
-        if (!subject || !body_html) {
-          const contentRes = getContent(item, item);
-          subject = contentRes.subject;
-          body_html = contentRes.body_html;
+      if (!subject || !body_html) {
+        const contentRes = getContent(item, item);
+        subject = contentRes.subject;
+        body_html = contentRes.body_html;
+      }
+
+      const finalSubject = personalise(subject, item.recipient_email, item.fields, account.display_name);
+      const personalisedBody = personalise(body_html, item.recipient_email, item.fields, account.display_name);
+      const finalBody = injectTracking(personalisedBody, item.id);
+
+      const messageId = await sendEmail(account, item.recipient_email, finalSubject, finalBody);
+
+      // Update queue item as sent
+      await db.prepare(`
+        UPDATE queue
+        SET status = 'sent',
+            sent_at = NOW(),
+            final_subject = ?,
+            final_body = ?,
+            provider_message_id = ?,
+            locked_at = NULL,
+            locked_by = NULL
+        WHERE id = ?
+      `).run(finalSubject, finalBody, messageId || null, item.id);
+
+      // Update stats
+      await db.prepare('UPDATE accounts SET daily_sent = daily_sent + 1 WHERE id = ?').run(account.id);
+      await db.prepare('UPDATE campaigns SET sent_count = sent_count + 1 WHERE id = ?').run(item.campaign_id);
+
+      await logEvent(db, item.workspace_id, item.campaign_id, account.id, item.recipient_email, 'sent', 'OK', item.id);
+      logger.info({ recipient: item.recipient_email, sender: account.email, workerId }, 'Email sent successfully');
+
+      // Update recipient step status & queue next step
+      const currentStepNum = item.step_number || 1;
+      await db.prepare(`
+        UPDATE campaign_recipients
+        SET current_step = ?, last_sent_at = NOW()
+        WHERE campaign_id = ? AND recipient_email = ?
+      `).run(currentStepNum, item.campaign_id, item.recipient_email);
+
+      const nextStep = await db.prepare(
+        'SELECT * FROM campaign_steps WHERE campaign_id = ? AND step_number = ?'
+      ).get(item.campaign_id, currentStepNum + 1);
+
+      if (nextStep) {
+        const rec = await db.prepare(
+          'SELECT status FROM campaign_recipients WHERE campaign_id = ? AND recipient_email = ?'
+        ).get(item.campaign_id, item.recipient_email);
+
+        if (rec && rec.status === 'active') {
+          const delayMs = (nextStep.delay_seconds || 86400) * 1000;
+          const scheduledTime = new Date(Date.now() + delayMs);
+
+          await db.prepare(`
+            INSERT INTO queue (workspace_id, campaign_id, recipient_email, account_id, status, scheduled_at, fields, step_number, campaign_step_id)
+            VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+          `).run(item.workspace_id, item.campaign_id, item.recipient_email, account.id, scheduledTime.toISOString(), item.fields, nextStep.step_number, nextStep.id);
+
+          logger.info({ recipient: item.recipient_email, campaignId: item.campaign_id, nextStep: nextStep.step_number }, 'Scheduled follow-up email step');
         }
-
-        const finalSubject = personalise(subject, item.recipient_email, item.fields, account.display_name);
-        const personalisedBody = personalise(body_html, item.recipient_email, item.fields, account.display_name);
-        const finalBody = injectTracking(personalisedBody, item.id);
-
-        await sendEmail(account, item.recipient_email, finalSubject, finalBody);
-
-        // Mark as sent
-        await db.prepare("UPDATE queue SET status = 'sent', sent_at = ?, final_subject = ?, final_body = ? WHERE id = ?")
-          .run(new Date().toISOString(), finalSubject, finalBody, item.id);
-        await db.prepare('UPDATE campaigns SET sent_count = sent_count + 1 WHERE id = ?').run(item.campaign_id);
-
-        await logEvent(db, item.campaign_id, account.id, item.recipient_email, 'sent', 'OK', item.id);
-        logger.info({ recipient: item.recipient_email, sender: account.email }, 'Email sent successfully');
-
-        // Update recipient step status & queue follow-ups
-        const currentStepNum = item.step_number || 1;
+      } else {
         await db.prepare(`
           UPDATE campaign_recipients
-          SET current_step = ?, last_sent_at = ?
-          WHERE campaign_id = ? AND recipient_email = ?
-        `).run(currentStepNum, new Date().toISOString(), item.campaign_id, item.recipient_email);
+          SET status = 'completed'
+          WHERE campaign_id = ? AND recipient_email = ? AND status = 'active'
+        `).run(item.campaign_id, item.recipient_email);
+      }
 
-        // Check if there is a next step in the campaign
-        const nextStep = await db.prepare('SELECT * FROM campaign_steps WHERE campaign_id = ? AND step_number = ?').get(item.campaign_id, currentStepNum + 1);
+      await completeCampaignIfNoActiveQueue(db, item.campaign_id);
+      processedCount++;
+    } catch (err) {
+      const attempts = (item.attempts || item.retry_count || 0) + 1;
+      if (attempts < 3) {
+        // Exponential backoff minutes: 1st: 5m, 2nd: 15m
+        const backoffMinutes = Math.pow(3, attempts - 1) * 5;
+        const nextAttempt = new Date(Date.now() + backoffMinutes * 60 * 1000);
 
-        if (nextStep) {
-          // Schedule next step if recipient status is active
-          const rec = await db.prepare('SELECT status FROM campaign_recipients WHERE campaign_id = ? AND recipient_email = ?').get(item.campaign_id, item.recipient_email);
-          if (rec && rec.status === 'active') {
-            const delayMs = (nextStep.delay_seconds || 86400) * 1000;
-            const scheduledTime = new Date(Date.now() + delayMs);
+        await db.prepare(`
+          UPDATE queue
+          SET status = 'pending',
+              attempts = ?,
+              retry_count = ?,
+              next_attempt_at = ?,
+              last_error = ?,
+              error = ?,
+              locked_at = NULL,
+              locked_by = NULL
+          WHERE id = ?
+        `).run(attempts, attempts, nextAttempt.toISOString(), err.message, err.message, item.id);
 
-            await db.prepare(`
-              INSERT INTO queue (campaign_id, recipient_email, account_id, status, scheduled_at, fields, step_number, campaign_step_id)
-              VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
-            `).run(item.campaign_id, item.recipient_email, account.id, scheduledTime.toISOString(), item.fields, nextStep.step_number, nextStep.id);
+        await logEvent(db, item.workspace_id, item.campaign_id, account.id, item.recipient_email, 'retry', `Attempt ${attempts} failed: ${err.message}. Retrying in ${backoffMinutes}m`, item.id);
+        logger.warn({ err: err.message, recipient: item.recipient_email, attempt: attempts, backoffMinutes }, 'Transient sending error; scheduled retry');
+      } else {
+        // Permanent failure
+        await db.prepare(`
+          UPDATE queue
+          SET status = 'failed',
+              attempts = ?,
+              retry_count = ?,
+              last_error = ?,
+              error = ?,
+              locked_at = NULL,
+              locked_by = NULL
+          WHERE id = ?
+        `).run(attempts, attempts, err.message, err.message, item.id);
 
-            logger.info({ recipient: item.recipient_email, campaignId: item.campaign_id, nextStep: nextStep.step_number, scheduledAt: scheduledTime }, 'Scheduled follow-up email step');
-          }
-        } else {
-          // Mark recipient campaign run as completed
-          await db.prepare(`
-            UPDATE campaign_recipients
-            SET status = 'completed'
-            WHERE campaign_id = ? AND recipient_email = ? AND status = 'active'
-          `).run(item.campaign_id, item.recipient_email);
-        }
-
+        await db.prepare('UPDATE campaigns SET failed_count = failed_count + 1 WHERE id = ?').run(item.campaign_id);
+        await logEvent(db, item.workspace_id, item.campaign_id, account.id, item.recipient_email, 'failed', err.message, item.id);
+        logger.error({ err: err.message, recipient: item.recipient_email }, 'Permanent sending failure; max retries exceeded');
         await completeCampaignIfNoActiveQueue(db, item.campaign_id);
-      } catch (err) {
-        // Decrement the batch count for this account since it failed to send
-        if (accountSentInBatch[account.id] > 0) {
-          accountSentInBatch[account.id]--;
-        }
-
-        // If we reserved a DB slot earlier, release it so other items can use it
-        if (reserved) {
-          try {
-            await db.prepare('UPDATE accounts SET daily_sent = daily_sent - 1 WHERE id = ? AND daily_sent > 0').run(account.id);
-          } catch (decErr) {
-            logger.error({ err: decErr, account: account.id }, 'Failed to decrement daily_sent after send failure');
-          }
-        }
-
-        // Check retry_count for exponential backoff
-        const currentRetryCount = item.retry_count || 0;
-        if (currentRetryCount < 3) {
-          const nextRetryCount = currentRetryCount + 1;
-          // Exponential backoff minutes: 1st retry: 5 mins, 2nd: 15 mins, 3rd: 45 mins
-          const backoffMinutes = Math.pow(3, nextRetryCount - 1) * 5;
-          const nextAttempt = new Date(Date.now() + backoffMinutes * 60 * 1000);
-
-          await db.prepare("UPDATE queue SET status = 'pending', retry_count = ?, scheduled_at = ?, error = ? WHERE id = ?")
-            .run(nextRetryCount, nextAttempt.toISOString(), err.message, item.id);
-
-          await logEvent(db, item.campaign_id, account.id, item.recipient_email, 'retry', `Attempt ${nextRetryCount} failed: ${err.message}. Retrying at ${nextAttempt.toISOString()}`, item.id);
-          logger.warn({ err, recipient: item.recipient_email, attempt: nextRetryCount, backoffMinutes }, 'Temporary sending failure');
-        } else {
-          // Mark as failed permanently
-            await db.prepare("UPDATE queue SET status = 'failed', error = ? WHERE id = ?").run(err.message, item.id);
-          await db.prepare('UPDATE campaigns SET failed_count = failed_count + 1 WHERE id = ?').run(item.campaign_id);
-          await logEvent(db, item.campaign_id, account.id, item.recipient_email, 'failed', err.message, item.id);
-            logger.error({ err, recipient: item.recipient_email }, 'Permanent sending failure');
-
-          // Reservation was consumed for this permanent failure — decrement to free quota
-          if (reserved) {
-            try {
-              await db.prepare('UPDATE accounts SET daily_sent = daily_sent - 1 WHERE id = ? AND daily_sent > 0').run(account.id);
-            } catch (decErr) {
-              logger.error({ err: decErr, account: account.id }, 'Failed to decrement daily_sent after permanent failure');
-            }
-          }
-
-          await completeCampaignIfNoActiveQueue(db, item.campaign_id);
-        }
       }
     }
   }
 
-  // Run groups with limited concurrency
-  const workers = new Array(concurrency).fill(null).map(async () => {
-    while (true) {
-      const i = idx++;
-      if (i >= groupEntries.length) break;
-      const [accountKey, groupItems] = groupEntries[i];
-      try {
-        await processGroup(accountKey, groupItems);
-      } catch (err) {
-        logger.error({ err, accountKey }, 'Error processing account group');
-      }
-    }
-  });
+  return processedCount;
+}
 
-  await Promise.all(workers);
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function processNextItem() {
+  return processQueueBatch('legacy-scheduler');
 }
 
 async function completeCampaignIfNoActiveQueue(db, campaignId) {
@@ -491,15 +521,15 @@ async function completeCampaignIfNoActiveQueue(db, campaignId) {
     const row = await db.prepare(`
       SELECT COUNT(*) as activeCount
       FROM queue
-      WHERE campaign_id = ? AND status IN ('pending', 'sending')
+      WHERE campaign_id = ? AND status IN ('pending', 'processing', 'sending')
     `).get(campaignId);
 
     if (!row || row.activeCount === 0) {
       await db.prepare("UPDATE campaigns SET status = 'completed' WHERE id = ? AND status = 'sending'").run(campaignId);
-      logger.info({ campaignId }, 'Campaign marked completed (no active queue items remain)');
+      logger.info({ campaignId }, 'Campaign marked completed');
     }
   } catch (err) {
-    logger.error({ err, campaignId }, 'Error finalizing campaign completion');
+    logger.error({ err: err.message, campaignId }, 'Error finalizing campaign completion');
   }
 }
 
@@ -511,7 +541,7 @@ async function completeEmptySendingCampaigns(db) {
       LEFT JOIN (
         SELECT campaign_id, COUNT(*) as activeCount
         FROM queue
-        WHERE status IN ('pending', 'sending')
+        WHERE status IN ('pending', 'processing', 'sending')
         GROUP BY campaign_id
       ) q ON q.campaign_id = c.id
       WHERE c.status = 'sending' AND COALESCE(q.activeCount, 0) = 0
@@ -519,107 +549,28 @@ async function completeEmptySendingCampaigns(db) {
 
     for (const row of rows) {
       await db.prepare("UPDATE campaigns SET status = 'completed' WHERE id = ?").run(row.id);
-      logger.info({ campaignId: row.id }, 'Campaign marked completed during scheduler sweep (no active queue items)');
+      logger.info({ campaignId: row.id }, 'Campaign marked completed during sweep');
     }
   } catch (err) {
-    logger.error({ err }, 'Error completing empty sending campaigns');
+    logger.error({ err: err.message }, 'Error completing empty sending campaigns');
   }
 }
 
-// ---------------------------------------------------------------------------
-// Log helper
-// ---------------------------------------------------------------------------
-
-async function logEvent(db, campaignId, accountId, recipient, status, message, queueId = null) {
+async function logEvent(db, workspaceId, campaignId, accountId, recipient, status, message, queueId = null) {
   try {
     await db.prepare(`
-      INSERT INTO logs (campaign_id, account_id, recipient_email, status, message, queue_id)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(campaignId, accountId, recipient, status, message, queueId);
+      INSERT INTO logs (workspace_id, campaign_id, account_id, recipient_email, status, message, queue_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(workspaceId || null, campaignId || null, accountId || null, recipient, status, message, queueId);
   } catch (err) {
-    // Fallback if queue_id column doesn't exist yet in the database
-    try {
-      await db.prepare(`
-        INSERT INTO logs (campaign_id, account_id, recipient_email, status, message)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(campaignId, accountId, recipient, status, message);
-    } catch (fallbackErr) {
-      logger.error({ err: fallbackErr }, 'Log write error');
-    }
+    logger.error({ err: err.message }, 'Log write error');
   }
 }
 
-// ---------------------------------------------------------------------------
-// Startup: crash recovery + validation
-// ---------------------------------------------------------------------------
-
-(async () => {
-  try {
-    const db = await getDb();
-
-    // Recover any queue items stuck in 'sending' from a previous crash
-    const stuck = await db.prepare(
-      "UPDATE queue SET status = 'pending' WHERE status = 'sending'"
-    ).run();
-    if (stuck.changes > 0) {
-      logger.info({ count: stuck.changes }, 'Recovered stuck queue items from previous crash');
-    }
-  } catch (err) {
-    logger.error({ err }, 'Startup recovery failed');
-  }
-
-  // Warn if TRACKING_BASE_URL is still localhost in non-dev environments
-  const trackingUrl = process.env.TRACKING_BASE_URL || 'http://localhost:3000';
-  if (trackingUrl.includes('localhost') && process.env.NODE_ENV === 'production') {
-    logger.warn('TRACKING_BASE_URL is set to localhost — tracking pixels will not work in production!');
-  }
-})();
-
-// ---------------------------------------------------------------------------
-// Cron: every 30 seconds
-// ---------------------------------------------------------------------------
-
-const schedulerDisabled = process.env.DISABLE_SCHEDULER === 'true';
-const schedulerEnabled = !schedulerDisabled && (
-  process.env.NODE_ENV === 'production' ||
-  process.env.ENABLE_SCHEDULER === 'true' ||
-  process.env.NODE_ENV !== 'production'
-);
-let sendTask;
-let resetTask;
-
-if (schedulerEnabled) {
-  sendTask = cron.schedule('*/30 * * * * *', async () => {
-    try {
-      await processNextItem();
-    } catch (err) {
-      logger.error({ err }, 'Unexpected error in cron send task');
-    }
-  });
-
-  // Daily reset of account send counters at midnight
-  resetTask = cron.schedule('0 0 * * *', async () => {
-    try {
-      const db = await getDb();
-      await db.prepare("UPDATE accounts SET daily_sent = 0, last_reset = datetime('now')").run();
-      logger.info('Daily send counters reset');
-    } catch (err) {
-      logger.error({ err }, 'Counter reset error');
-    }
-  });
-
-  logger.info('Email worker started (every 30s)');
-} else {
-  sendTask = { stop: () => {} };
-  resetTask = { stop: () => {} };
-  logger.info('Email worker is disabled. Set DISABLE_SCHEDULER=false or remove the flag to enable it.');
-}
-
-function stopScheduler() {
-  sendTask.stop();
-  resetTask.stop();
-  logger.info('Email worker stopped');
-}
-
-module.exports = { processNextItem, personalise, completeCampaignIfNoActiveQueue, stopScheduler };
-
+module.exports = {
+  processQueueBatch,
+  recoverStaleJobs,
+  processNextItem,
+  personalise,
+  completeCampaignIfNoActiveQueue,
+};

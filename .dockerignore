@@ -1,0 +1,53 @@
+# ── .dockerignore ─────────────────────────────────────────────────────────── #
+# Excluded from Docker build context to keep images lean and secure.
+
+# Local SQLite databases (production uses managed Postgres)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# Node modules (installed fresh inside Docker)
+node_modules/
+gfg-main/node_modules/
+
+# Frontend dev artifacts (built in builder stage)
+gfg-main/dist/
+
+# Git & IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+*.DS_Store
+
+# Environment files (secrets are injected via platform env vars)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Test files (not needed in production image)
+test/
+*.test.js
+*.spec.js
+
+# Documentation & guides
+*.md
+docs/
+
+# Playwright & build tools
+playwright.config.*
+e2e/
+
+# Capacitor / mobile build outputs
+android/
+ios/
+dist/
+
+# Temporary files
+tmp/
+temp/

@@ -3,9 +3,12 @@
  *
  * Endpoints:
  *   GET  /api/auth/google-url  → Generate Google OAuth consent URL for login
- *   GET  /api/auth/callback    → Exchange code for tokens, issue JWT
- *   GET  /api/auth/me          → Return current user info from JWT
- *   POST /api/auth/logout      → Clear session (client-side)
+ *   GET  /api/auth/callback    → Exchange code for tokens, issue JWT via HttpOnly cookie
+ *   GET  /api/auth/me          → Return current user info from session
+ *   POST /api/auth/logout      → Clear session cookie
+ *   POST /api/auth/profile     → Update user profile
+ *   GET  /api/auth/settings    → Get workspace settings
+ *   POST /api/auth/settings    → Update workspace settings
  */
 
 const express = require('express');
@@ -14,10 +17,11 @@ const jwt = require('jsonwebtoken');
 const { google } = require('googleapis');
 const { getDb } = require('../db');
 const logger = require('../logger');
+const { requireAuth, COOKIE_NAME } = require('../middleware/session');
 
 const JWT_SECRET = process.env.JWT_SECRET || null;
 const JWT_EXPIRY = '7d';
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
+const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
 
 function getJwtSecret() {
   if (!JWT_SECRET) {
@@ -30,9 +34,22 @@ function getLoginOAuth2Client() {
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    // Login callback is a DIFFERENT redirect URI from the accounts one
     process.env.GOOGLE_LOGIN_REDIRECT_URI || 'http://localhost:3000/api/auth/callback'
   );
+}
+
+/**
+ * Helper: Set the JWT as an HttpOnly cookie on the response.
+ */
+function setSessionCookie(res, token) {
+  const isProduction = process.env.NODE_ENV === 'production';
+  res.cookie(COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
+    maxAge: COOKIE_MAX_AGE,
+    path: '/',
+  });
 }
 
 /** Generate Google OAuth consent URL for admin login. */
@@ -53,33 +70,7 @@ router.get('/google-url', (_req, res) => {
   }
 });
 
-/** PIN-based login endpoint for quick local/dev authentication. */
-router.post('/pin-login', async (req, res) => {
-  const { pin } = req.body;
-  const configuredPin = process.env.ACCESS_PIN || null;
-
-  if (!configuredPin) {
-    return res.status(401).json({ error: 'PIN login is not configured. Please set ACCESS_PIN in your environment.' });
-  }
-
-  if (!pin || String(pin) !== String(configuredPin)) {
-    return res.status(401).json({ error: 'Invalid PIN. Please check ACCESS_PIN in your .env file.' });
-  }
-
-  try {
-    const token = jwt.sign(
-      { id: 'admin-pin', email: process.env.ADMIN_EMAIL || 'admin@local', name: 'Admin (PIN)', role: 'admin' },
-      getJwtSecret(),
-      { expiresIn: JWT_EXPIRY }
-    );
-
-    res.json({ success: true, token, user: { name: 'Admin', role: 'admin' } });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/** OAuth callback — exchange code, verify admin email, issue JWT. */
+/** OAuth callback — exchange code, verify email, create/update user, issue session cookie. */
 router.get('/callback', async (req, res) => {
   const { code } = req.query;
   if (!code) return res.status(400).json({ error: 'No code provided.' });
@@ -96,9 +87,9 @@ router.get('/callback', async (req, res) => {
     const name = data.name || email.split('@')[0];
     const picture = data.picture || '';
 
-    // Check admin restriction
+    // Check admin restriction (optional)
+    const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
     if (ADMIN_EMAIL && email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
-      // Redirect to frontend with error
       const frontendUrl = process.env.FRONTEND_ORIGIN || '';
       return res.redirect(frontendUrl + '/?auth_error=unauthorized');
     }
@@ -120,6 +111,23 @@ router.get('/callback', async (req, res) => {
     // Fetch the full user row for the JWT payload
     const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
 
+    // Ensure user has a default workspace
+    const memberRow = await db.prepare(
+      'SELECT workspace_id FROM workspace_members WHERE user_id = ?'
+    ).get(user.id);
+
+    if (!memberRow) {
+      // Create a default workspace for this user
+      const wsResult = await db.prepare(
+        'INSERT INTO workspaces (name) VALUES (?)'
+      ).run(`${user.name || 'My'}'s Workspace`);
+
+      const workspaceId = wsResult.lastInsertRowid;
+      await db.prepare(
+        'INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)'
+      ).run(workspaceId, user.id, 'admin');
+    }
+
     // Issue JWT
     const token = jwt.sign(
       { id: user.id, email: user.email, name: user.name, role: user.role },
@@ -127,30 +135,26 @@ router.get('/callback', async (req, res) => {
       { expiresIn: JWT_EXPIRY }
     );
 
-    // Redirect to frontend with token in query
+    // Set HttpOnly cookie — do NOT put token in the URL
+    setSessionCookie(res, token);
+
+    // Redirect to frontend (no token in URL)
     const frontendUrl = process.env.FRONTEND_ORIGIN || '';
-    res.redirect(frontendUrl + `/?token=${encodeURIComponent(token)}`);
+    res.redirect(frontendUrl + '/?auth_success=true');
   } catch (err) {
     logger.error({ err }, 'Auth callback error');
     res.status(500).json({ error: err.message });
   }
 });
 
-/** Return current user info from JWT. */
-router.get('/me', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided.' });
-  }
-
+/** Return current user info from session (cookie or Bearer). */
+router.get('/me', requireAuth, async (req, res) => {
   try {
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, getJwtSecret());
     res.json({
-      id: decoded.id,
-      email: decoded.email,
-      name: decoded.name,
-      role: decoded.role,
+      id: req.user.id,
+      email: req.user.email,
+      name: req.user.name,
+      role: req.user.role,
     });
   } catch (err) {
     res.status(401).json({ error: 'Invalid or expired token.' });
@@ -158,15 +162,8 @@ router.get('/me', async (req, res) => {
 });
 
 /** Update current user's profile details. */
-router.post('/profile', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided.' });
-  }
-
+router.post('/profile', requireAuth, async (req, res) => {
   try {
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, getJwtSecret());
     const { name, picture } = req.body;
 
     if (!name) {
@@ -176,7 +173,7 @@ router.post('/profile', async (req, res) => {
     const db = await getDb();
     await db.prepare(
       'UPDATE users SET name = ?, picture = ? WHERE id = ?'
-    ).run(name, picture || '', decoded.id);
+    ).run(name, picture || '', req.user.id);
 
     res.json({ success: true, message: 'Profile updated successfully.' });
   } catch (err) {
@@ -184,17 +181,23 @@ router.post('/profile', async (req, res) => {
   }
 });
 
-/** Get system settings. */
-router.get('/settings', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided.' });
-  }
-
+/** Get workspace settings (requires auth + workspace). */
+router.get('/settings', requireAuth, async (req, res) => {
   try {
     const db = await getDb();
-    const rows = await db.prepare('SELECT key, value FROM settings').all();
-    
+
+    // Resolve user's default workspace for settings
+    const memberRow = await db.prepare(
+      'SELECT workspace_id FROM workspace_members WHERE user_id = ? ORDER BY workspace_id ASC LIMIT 1'
+    ).get(req.user.id);
+
+    const wsId = memberRow ? memberRow.workspace_id : null;
+
+    let rows = [];
+    if (wsId) {
+      rows = await db.prepare('SELECT key, value FROM settings WHERE workspace_id = ?').all(wsId);
+    }
+
     const settingsMap = {};
     rows.forEach(r => {
       settingsMap[r.key] = r.value;
@@ -205,7 +208,6 @@ router.get('/settings', async (req, res) => {
       TRACKING_BASE_URL: settingsMap['TRACKING_BASE_URL'] || process.env.TRACKING_BASE_URL || 'http://localhost:3000',
       SCHEDULER_BATCH_SIZE: settingsMap['SCHEDULER_BATCH_SIZE'] || process.env.SCHEDULER_BATCH_SIZE || '10',
       DAILY_LIMIT_DEFAULT: settingsMap['DAILY_LIMIT_DEFAULT'] || '450',
-      // Expose whether the background scheduler is enabled on the server.
       SCHEDULER_ENABLED: (process.env.NODE_ENV === 'production' || process.env.ENABLE_SCHEDULER === 'true') ? 'true' : 'false',
     };
 
@@ -215,26 +217,31 @@ router.get('/settings', async (req, res) => {
   }
 });
 
-/** Update system settings. */
-router.post('/settings', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided.' });
-  }
-
+/** Update workspace settings. */
+router.post('/settings', requireAuth, async (req, res) => {
   try {
     const settings = req.body;
     const db = await getDb();
 
+    // Resolve user's default workspace
+    const memberRow = await db.prepare(
+      'SELECT workspace_id FROM workspace_members WHERE user_id = ? ORDER BY workspace_id ASC LIMIT 1'
+    ).get(req.user.id);
+
+    if (!memberRow) {
+      return res.status(404).json({ error: 'No workspace found.' });
+    }
+
+    const wsId = memberRow.workspace_id;
     const keys = ['ADMIN_EMAIL', 'TRACKING_BASE_URL', 'SCHEDULER_BATCH_SIZE', 'DAILY_LIMIT_DEFAULT'];
-    
+
     for (const key of keys) {
       if (settings[key] !== undefined) {
-        const existing = await db.prepare('SELECT key FROM settings WHERE key = ?').get(key);
+        const existing = await db.prepare('SELECT key FROM settings WHERE workspace_id = ? AND key = ?').get(wsId, key);
         if (existing) {
-          await db.prepare('UPDATE settings SET value = ? WHERE key = ?').run(String(settings[key]), key);
+          await db.prepare('UPDATE settings SET value = ? WHERE workspace_id = ? AND key = ?').run(String(settings[key]), wsId, key);
         } else {
-          await db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(key, String(settings[key]));
+          await db.prepare('INSERT INTO settings (workspace_id, key, value) VALUES (?, ?, ?)').run(wsId, key, String(settings[key]));
         }
       }
     }
@@ -245,9 +252,45 @@ router.post('/settings', async (req, res) => {
   }
 });
 
-/** Logout placeholder (JWT is stateless — client discards token). */
+/** Logout — clear session cookie. */
 router.post('/logout', (_req, res) => {
-  res.json({ success: true, message: 'Token cleared on client.' });
+  res.clearCookie(COOKIE_NAME, { path: '/' });
+  res.json({ success: true, message: 'Session cleared.' });
+});
+
+/**
+ * GET /api/auth/plan — Return workspace plan and active entitlements.
+ * Requires auth + workspace.
+ */
+router.get('/plan', requireAuth, async (req, res) => {
+  try {
+    const db = await getDb();
+    const wsId = req.workspace ? req.workspace.id : null;
+
+    if (!wsId) {
+      return res.status(400).json({ error: 'Workspace context required.' });
+    }
+
+    // Get workspace plan
+    const ws = await db.prepare('SELECT plan FROM workspaces WHERE id = ?').get(wsId);
+    const plan = ws ? (ws.plan || 'free') : 'free';
+
+    // Get all entitlements for this workspace
+    const rows = await db.prepare(
+      "SELECT key, value FROM entitlements WHERE workspace_id = ?"
+    ).all(wsId);
+
+    const entitlements = {};
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        entitlements[row.key] = row.value;
+      }
+    }
+
+    res.json({ plan, entitlements });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

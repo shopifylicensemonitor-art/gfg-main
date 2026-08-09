@@ -175,8 +175,9 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
   };
 
   const handleSignOut = () => {
-    localStorage.removeItem('auth_token');
-    navigateToRoute('/login', { replace: true });
+    api.logout().finally(() => {
+      navigateToRoute('/login', { replace: true });
+    });
   };
 
   const handleClearNotifications = () => {

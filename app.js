@@ -22,9 +22,11 @@ if (!process.env.AI_ENCRYPTION_KEY) {
 
 const express = require('express');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 const path = require('path');
 const { getDb } = require('./db');
 const { requireAuth } = require('./middleware/session');
+const { requireWorkspace } = require('./middleware/workspace');
 const logger = require('./logger');
 const rateLimit = require('express-rate-limit');
 
@@ -63,22 +65,31 @@ const strictLimiter = rateLimit({
 // ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
+
+// Strict CORS: only allow explicitly configured origins
 const allowedOrigins = [
   'https://send.peakconix.site',
   'https://peak-x-sender-v3-test.netlify.app',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
 ];
 
+// Add dev localhost origins only in non-production
+if (process.env.NODE_ENV !== 'production') {
+  allowedOrigins.push(
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  );
+}
+
 const configuredOrigin = process.env.FRONTEND_ORIGIN || '';
-if (configuredOrigin) {
+if (configuredOrigin && !allowedOrigins.includes(configuredOrigin)) {
   allowedOrigins.push(configuredOrigin);
 }
 
 const corsOptions = {
   origin: function (origin, callback) {
+    // Allow requests with no origin (server-to-server, mobile apps, etc.)
     if (!origin) {
       return callback(null, true);
     }
@@ -87,11 +98,13 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    const isLocalhost = /^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
-    const isLocalNetwork = /^http:\/\/(?:192\.168|10|172\.(?:1[6-9]|2\d|3[0-1])|169\.254)\.\d+\.\d+(:\d+)?$/.test(origin);
-
-    if (isLocalhost || isLocalNetwork) {
-      return callback(null, true);
+    // In non-production, also allow localhost/LAN
+    if (process.env.NODE_ENV !== 'production') {
+      const isLocal = /^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
+      const isLan = /^http:\/\/(?:192\.168|10|172\.(?:1[6-9]|2\d|3[0-1])|169\.254)\.\d+\.\d+(:\d+)?$/.test(origin);
+      if (isLocal || isLan) {
+        return callback(null, true);
+      }
     }
 
     return callback(new Error(`Origin not allowed by CORS: ${origin}`));
@@ -99,6 +112,9 @@ const corsOptions = {
   credentials: true,
 };
 app.use(cors(corsOptions));
+
+// Cookie parser — required for HttpOnly session cookies
+app.use(cookieParser());
 
 app.use((req, res, next) => {
   logger.info({ method: req.method, url: req.url }, 'Incoming request');
@@ -115,22 +131,23 @@ app.use(express.static(path.join(__dirname, 'gfg-main', 'dist')));
 // API Routes
 // ---------------------------------------------------------------------------
 
-// Auth routes are PUBLIC
-app.use('/api/auth', strictLimiter, require('./routes/auth'));
+// Auth routes — mostly public (login, callback) but /plan needs workspace
+app.use('/api/auth', strictLimiter, requireWorkspace, require('./routes/auth'));
 
-// Protected routes (JWT or PIN)
-app.use('/api/accounts', generalLimiter, requireAuth, require('./routes/accounts'));
-app.use('/api/campaigns', generalLimiter, requireAuth, require('./routes/campaigns'));
-app.use('/api/contacts', generalLimiter, requireAuth, require('./routes/contacts'));
-app.use('/api/queue', generalLimiter, requireAuth, require('./routes/queue'));
-app.use('/api/templates', generalLimiter, requireAuth, require('./routes/templates'));
-app.use('/api/ai', generalLimiter, requireAuth, require('./routes/ai'));
-app.use('/api/inbox', generalLimiter, requireAuth, require('./routes/inbox'));
+// Protected routes — require JWT auth + workspace resolution
+app.use('/api/accounts', generalLimiter, requireAuth, requireWorkspace, require('./routes/accounts'));
+app.use('/api/campaigns', generalLimiter, requireAuth, requireWorkspace, require('./routes/campaigns'));
+app.use('/api/contacts', generalLimiter, requireAuth, requireWorkspace, require('./routes/contacts'));
+app.use('/api/queue', generalLimiter, requireAuth, requireWorkspace, require('./routes/queue'));
+app.use('/api/templates', generalLimiter, requireAuth, requireWorkspace, require('./routes/templates'));
+app.use('/api/ai', generalLimiter, requireAuth, requireWorkspace, require('./routes/ai'));
+app.use('/api/inbox', generalLimiter, requireAuth, requireWorkspace, require('./routes/inbox'));
+app.use('/api/manual', generalLimiter, requireAuth, requireWorkspace, require('./routes/manual'));
 
-// Tracking routes are PUBLIC
+// Tracking routes are PUBLIC (open/click tracking pixels)
 app.use('/api/track', require('./routes/tracking'));
 
-// Health check
+// Health check (PUBLIC)
 app.get('/api/health', async (_req, res) => {
   try {
     const db = await getDb();
@@ -145,17 +162,18 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
-// Dashboard stats aggregator
-app.get('/api/dashboard', generalLimiter, requireAuth, async (_req, res) => {
+// Dashboard stats aggregator (workspace-scoped)
+app.get('/api/dashboard', generalLimiter, requireAuth, requireWorkspace, async (req, res) => {
   try {
     const db = await getDb();
+    const wsId = req.workspace.id;
     
-    const totalSentRow = await db.prepare("SELECT SUM(daily_sent) as today_sent FROM accounts").get() || { today_sent: 0 };
-    const activeAccountsRow = await db.prepare("SELECT COUNT(*) as active_accounts FROM accounts WHERE status = 'active'").get() || { active_accounts: 0 };
-    const queueRow = await db.prepare("SELECT COUNT(*) as pending FROM queue WHERE status = 'pending'").get() || { pending: 0 };
-    const campaignsRow = await db.prepare("SELECT COUNT(*) as active FROM campaigns WHERE status = 'sending'").get() || { active: 0 };
-    const failedRow = await db.prepare("SELECT SUM(failed_count) as failed FROM campaigns").get() || { failed: 0 };
-    const trackingRow = await db.prepare("SELECT COALESCE(SUM(opens_count), 0) as opens, COALESCE(SUM(clicks_count), 0) as clicks FROM queue").get() || { opens: 0, clicks: 0 };
+    const totalSentRow = await db.prepare("SELECT SUM(daily_sent) as today_sent FROM accounts WHERE workspace_id = ?").get(wsId) || { today_sent: 0 };
+    const activeAccountsRow = await db.prepare("SELECT COUNT(*) as active_accounts FROM accounts WHERE status = 'active' AND workspace_id = ?").get(wsId) || { active_accounts: 0 };
+    const queueRow = await db.prepare("SELECT COUNT(*) as pending FROM queue WHERE status = 'pending' AND workspace_id = ?").get(wsId) || { pending: 0 };
+    const campaignsRow = await db.prepare("SELECT COUNT(*) as active FROM campaigns WHERE status = 'sending' AND workspace_id = ?").get(wsId) || { active: 0 };
+    const failedRow = await db.prepare("SELECT SUM(failed_count) as failed FROM campaigns WHERE workspace_id = ?").get(wsId) || { failed: 0 };
+    const trackingRow = await db.prepare("SELECT COALESCE(SUM(opens_count), 0) as opens, COALESCE(SUM(clicks_count), 0) as clicks FROM queue WHERE workspace_id = ?").get(wsId) || { opens: 0, clicks: 0 };
 
     const stats = {
       today_sent: totalSentRow.today_sent || 0,
@@ -173,19 +191,21 @@ app.get('/api/dashboard', generalLimiter, requireAuth, async (_req, res) => {
              COALESCE(SUM(q.clicks_count), 0) as total_clicks
       FROM campaigns c
       LEFT JOIN queue q ON c.id = q.campaign_id
+      WHERE c.workspace_id = ?
       GROUP BY c.id
       ORDER BY c.id DESC
       LIMIT 5
-    `).all();
+    `).all(wsId);
 
     const queue = await db.prepare(`
       SELECT q.*, c.name as campaign_name, a.email as account_email
       FROM queue q
       LEFT JOIN campaigns c ON q.campaign_id = c.id
       LEFT JOIN accounts a ON q.account_id = a.id
+      WHERE q.workspace_id = ?
       ORDER BY q.id DESC
       LIMIT 10
-    `).all();
+    `).all(wsId);
 
     res.json({ stats, campaigns, queue });
   } catch (err) {
