@@ -24,8 +24,11 @@ function getProviderForAccount(account) {
     return new SmtpImapProvider(account);
   }
 
-  // Default for oauth / google
-  return new GmailProvider(account);
+  if (type === 'oauth' || type === 'google') {
+    return new GmailProvider(account);
+  }
+
+  throw new Error(`Unsupported sender account type: "${account.type}"`);
 }
 
 module.exports = {
