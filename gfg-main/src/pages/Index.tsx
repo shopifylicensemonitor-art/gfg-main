@@ -134,13 +134,7 @@ const Index = () => {
 
   // ── Live Background Sync ────────────────────────────────────────────────────
   // Polls /api/dashboard every 30s (8s while campaigns are actively sending).
-  const {
-    stats: liveStats,
-    activeCampaignCount,
-    pendingQueueCount,
-    lastSyncedAt,
-    triggerSync: triggerDashboardSync,
-  } = useAutoSync(true, 30_000);
+  useAutoSync(true, 30_000);
 
   // ── State Hooks ────────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
