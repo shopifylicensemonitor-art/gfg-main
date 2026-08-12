@@ -11,6 +11,35 @@
   node_bundler = "esbuild"
   included_files = ["node_modules/sql.js/dist/sql-wasm.wasm", "gfg-main/node_modules/sql.js/dist/sql-wasm.wasm"]
 
+# ────────────────────────────────────────────────────────────────────────────
+# OPTIONAL: Scheduled Background Scheduler Function
+# ────────────────────────────────────────────────────────────────────────────
+#
+# To enable continuous email sending via a Netlify scheduled function,
+# uncomment the [[functions]] block below.
+#
+# How it works:
+#   - Netlify calls netlify/functions/scheduler.js on a schedule
+#   - The function runs processNextItem() from scheduler.js
+#   - Queued emails are dispatched every 15 seconds (or your chosen interval)
+#
+# Setup:
+#   1. Uncomment the two lines below
+#   2. Deploy to Netlify
+#   3. Check Netlify Functions logs to verify it's running
+#
+# Note: Scheduled functions are in beta on Netlify. See NETLIFY_SCHEDULER_DEPLOYMENT.md
+# for production-ready alternatives (external cron, separate Node host, etc.)
+#
+# [[functions]]
+#   name = "scheduler"
+#   path = "netlify/functions/scheduler.js"
+#   schedule = "*/15 * * * * *"
+#
+# If you enable this, also set in your Netlify environment:
+#   DISABLE_SCHEDULER=false  # Allow the scheduled function to run
+#   SCHEDULER_BATCH_SIZE=10  # Optional: adjust batch size
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"
@@ -30,3 +59,4 @@
   from = "/*"
   to = "/index.html"
   status = 200
+

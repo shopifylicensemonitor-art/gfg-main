@@ -5,16 +5,22 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "build": "cd gfg-main && npm run build && rm -rf ../dist && cp -r dist ../dist",
+    "build:dev": "cd gfg-main && npm run build:dev && rm -rf ../dist && cp -r dist ../dist",
     "frontend:dev": "cd gfg-main && npm run dev",
     "frontend:build": "cd gfg-main && npm run build",
     "backend:dev": "node server.js",
     "worker": "node worker.js",
     "dev": "concurrently \"npm run backend:dev\" \"npm run worker\" \"npm run frontend:dev\"",
+    "lint": "cd gfg-main && npm run lint",
     "test": "node test/providers-entitlements.test.js && node test/e2e-security-audit.test.js",
     "test:security": "node test/e2e-security-audit.test.js",
     "postinstall": "npm install --prefix gfg-main"
   },
   "dependencies": {
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/network": "^8.0.1",
+    "@google/genai": "^2.16.0",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
