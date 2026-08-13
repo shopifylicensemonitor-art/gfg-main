@@ -26,7 +26,7 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 const { getDb } = require('./db');
 const { requireAuth } = require('./middleware/session');
-const { requireWorkspace } = require('./middleware/workspace');
+const { attachTenant } = require('./middleware/tenant');
 const logger = require('./logger');
 const rateLimit = require('express-rate-limit');
 
@@ -131,18 +131,18 @@ app.use(express.static(path.join(__dirname, 'gfg-main', 'dist')));
 // API Routes
 // ---------------------------------------------------------------------------
 
-// Auth routes — mostly public (login, callback) but /plan needs workspace
-app.use('/api/auth', strictLimiter, requireWorkspace, require('./routes/auth'));
+// Auth routes — public
+app.use('/api/auth', strictLimiter, require('./routes/auth'));
 
-// Protected routes — require JWT auth + workspace resolution
-app.use('/api/accounts', generalLimiter, requireAuth, requireWorkspace, require('./routes/accounts'));
-app.use('/api/campaigns', generalLimiter, requireAuth, requireWorkspace, require('./routes/campaigns'));
-app.use('/api/contacts', generalLimiter, requireAuth, requireWorkspace, require('./routes/contacts'));
-app.use('/api/queue', generalLimiter, requireAuth, requireWorkspace, require('./routes/queue'));
-app.use('/api/templates', generalLimiter, requireAuth, requireWorkspace, require('./routes/templates'));
-app.use('/api/ai', generalLimiter, requireAuth, requireWorkspace, require('./routes/ai'));
-app.use('/api/inbox', generalLimiter, requireAuth, requireWorkspace, require('./routes/inbox'));
-app.use('/api/manual', generalLimiter, requireAuth, requireWorkspace, require('./routes/manual'));
+// Protected routes — require JWT auth + tenant UUID validation
+app.use('/api/accounts', generalLimiter, requireAuth, attachTenant, require('./routes/accounts'));
+app.use('/api/campaigns', generalLimiter, requireAuth, attachTenant, require('./routes/campaigns'));
+app.use('/api/contacts', generalLimiter, requireAuth, attachTenant, require('./routes/contacts'));
+app.use('/api/queue', generalLimiter, requireAuth, attachTenant, require('./routes/queue'));
+app.use('/api/templates', generalLimiter, requireAuth, attachTenant, require('./routes/templates'));
+app.use('/api/ai', generalLimiter, requireAuth, attachTenant, require('./routes/ai'));
+app.use('/api/inbox', generalLimiter, requireAuth, attachTenant, require('./routes/inbox'));
+app.use('/api/manual', generalLimiter, requireAuth, attachTenant, require('./routes/manual'));
 
 // Tracking routes are PUBLIC (open/click tracking pixels)
 app.use('/api/track', require('./routes/tracking'));
@@ -162,18 +162,17 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
-// Dashboard stats aggregator (workspace-scoped)
-app.get('/api/dashboard', generalLimiter, requireAuth, requireWorkspace, async (req, res) => {
+// Dashboard stats aggregator (user-scoped via RLS/UUID tenant enforcement)
+app.get('/api/dashboard', generalLimiter, requireAuth, attachTenant, async (req, res) => {
   try {
     const db = await getDb();
-    const wsId = req.workspace.id;
-    
-    const totalSentRow = await db.prepare("SELECT SUM(daily_sent) as today_sent FROM accounts WHERE workspace_id = ?").get(wsId) || { today_sent: 0 };
-    const activeAccountsRow = await db.prepare("SELECT COUNT(*) as active_accounts FROM accounts WHERE status = 'active' AND workspace_id = ?").get(wsId) || { active_accounts: 0 };
-    const queueRow = await db.prepare("SELECT COUNT(*) as pending FROM queue WHERE status = 'pending' AND workspace_id = ?").get(wsId) || { pending: 0 };
-    const campaignsRow = await db.prepare("SELECT COUNT(*) as active FROM campaigns WHERE status = 'sending' AND workspace_id = ?").get(wsId) || { active: 0 };
-    const failedRow = await db.prepare("SELECT SUM(failed_count) as failed FROM campaigns WHERE workspace_id = ?").get(wsId) || { failed: 0 };
-    const trackingRow = await db.prepare("SELECT COALESCE(SUM(opens_count), 0) as opens, COALESCE(SUM(clicks_count), 0) as clicks FROM queue WHERE workspace_id = ?").get(wsId) || { opens: 0, clicks: 0 };
+
+    const totalSentRow = await db.prepare("SELECT SUM(daily_sent) as today_sent FROM accounts WHERE status = 'active'").get() || { today_sent: 0 };
+    const activeAccountsRow = await db.prepare("SELECT COUNT(*) as active_accounts FROM accounts WHERE status = 'active'").get() || { active_accounts: 0 };
+    const queueRow = await db.prepare("SELECT COUNT(*) as pending FROM queue WHERE status = 'pending'").get() || { pending: 0 };
+    const campaignsRow = await db.prepare("SELECT COUNT(*) as active FROM campaigns WHERE status = 'sending'").get() || { active: 0 };
+    const failedRow = await db.prepare("SELECT SUM(failed_count) as failed FROM campaigns").get() || { failed: 0 };
+    const trackingRow = await db.prepare("SELECT COALESCE(SUM(opens_count), 0) as opens, COALESCE(SUM(clicks_count), 0) as clicks FROM queue").get() || { opens: 0, clicks: 0 };
 
     const stats = {
       today_sent: totalSentRow.today_sent || 0,

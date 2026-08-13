@@ -359,6 +359,22 @@ function flattenParams(params) {
 // ============================================================================
 
 const SQLITE_DDL = `
+  CREATE TABLE IF NOT EXISTS workspaces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS workspace_members (
+    workspace_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    role TEXT DEFAULT 'member',
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (workspace_id, user_id),
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT NOT NULL UNIQUE,
@@ -452,6 +468,7 @@ const SQLITE_DDL = `
     name TEXT DEFAULT '',
     picture TEXT DEFAULT '',
     role TEXT DEFAULT 'admin',
+    password_hash TEXT,
     last_login TEXT DEFAULT (datetime('now')),
     created_at TEXT DEFAULT (datetime('now'))
   );
@@ -523,6 +540,22 @@ const SQLITE_DDL = `
 `;
 
 const PG_DDL = `
+  CREATE TABLE IF NOT EXISTS workspaces (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS workspace_members (
+    workspace_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    role TEXT DEFAULT 'member',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (workspace_id, user_id),
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS accounts (
     id SERIAL PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
@@ -618,6 +651,7 @@ const PG_DDL = `
     name TEXT DEFAULT '',
     picture TEXT DEFAULT '',
     role TEXT DEFAULT 'admin',
+    password_hash TEXT,
     last_login TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
   );

@@ -21,6 +21,7 @@
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/network": "^8.0.1",
     "@google/genai": "^2.16.0",
+    "bcrypt": "^5.1.1",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",

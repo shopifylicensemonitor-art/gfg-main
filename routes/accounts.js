@@ -148,6 +148,7 @@ router.get('/', async (req, res) => {
 });
 
 /** Generate Google OAuth consent URL. */
+router.post('/google-url', async (req, res) => {
   try {
     const db = await getDb();
     const countRow = await db.prepare('SELECT COUNT(*) as count FROM accounts WHERE workspace_id = ?').get(req.workspace.id);

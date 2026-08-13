@@ -70,6 +70,101 @@ router.get('/google-url', (_req, res) => {
   }
 });
 
+/** Email/password signup endpoint. */
+router.post('/signup', async (req, res) => {
+  const { email, password, name } = req.body;
+
+  if (!email || !password || !name) {
+    return res.status(400).json({ error: 'Email, password, and name are required.' });
+  }
+
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
+  }
+
+  try {
+    const bcrypt = require('bcrypt');
+    const db = await getDb();
+
+    // Check if user already exists
+    const existing = await db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase());
+    if (existing) {
+      return res.status(409).json({ error: 'Email already registered.' });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Insert new user
+    const result = await db.prepare(
+      'INSERT INTO users (email, name, password_hash, role) VALUES (?, ?, ?, ?)'
+    ).run(email.toLowerCase(), name, hashedPassword, 'user');
+
+    const userId = result.lastInsertRowid;
+
+    // Create a default workspace for this user
+    const wsResult = await db.prepare(
+      'INSERT INTO workspaces (name) VALUES (?)'
+    ).run(`${name}'s Workspace`);
+
+    const workspaceId = wsResult.lastInsertRowid;
+    await db.prepare(
+      'INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)'
+    ).run(workspaceId, userId, 'admin');
+
+    res.json({ success: true, message: 'Account created successfully. Please sign in.' });
+  } catch (err) {
+    logger.error({ err }, 'Signup error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Email/password signin endpoint. */
+router.post('/signin', async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required.' });
+  }
+
+  try {
+    const bcrypt = require('bcrypt');
+    const db = await getDb();
+
+    // Find user by email
+    const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase());
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    // Verify password
+    const passwordMatch = await bcrypt.compare(password, user.password_hash || '');
+    if (!passwordMatch) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    // Update last login
+    await db.prepare(
+      "UPDATE users SET last_login = datetime('now') WHERE id = ?"
+    ).run(user.id);
+
+    // Issue JWT
+    const token = jwt.sign(
+      { id: user.id, email: user.email, name: user.name, role: user.role },
+      getJwtSecret(),
+      { expiresIn: JWT_EXPIRY }
+    );
+
+    // Set HttpOnly cookie
+    setSessionCookie(res, token);
+
+    res.json({ success: true, message: 'Signed in successfully.', user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+  } catch (err) {
+    logger.error({ err }, 'Signin error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /** OAuth callback — exchange code, verify email, create/update user, issue session cookie. */
 router.get('/callback', async (req, res) => {
   const { code } = req.query;
