@@ -99,61 +99,13 @@ router.post('/worker/trigger', async (req, res) => {
 
 ---
 
-### Option 3: Netlify Scheduled Function (Beta)
+### Option 3: ~~Netlify Scheduled Function (Beta)~~ [NOT VIABLE]
 
-Netlify now supports scheduled functions. Create a new function that invokes `processNextItem()` directly.
+❌ **DOES NOT WORK**: Netlify's `netlify.toml` parser **does not support** `[[functions]]` (array table) syntax. The parser requires `functions` to be a single object with only these properties: `directory`, `node_bundler`, `included_files`, `external_node_modules`.
 
-**File**: `netlify/functions/scheduler.js`
-```javascript
-/**
- * netlify/functions/scheduler.js — Scheduled Netlify Function
- * Runs every 15 seconds to dispatch queued emails
- */
+Netlify scheduled functions **may exist as a beta UI feature**, but they cannot be configured via `netlify.toml`. Use **Option 1** or **Option 2** instead.
 
-const { processNextItem } = require('../../scheduler');
-const logger = require('../../logger');
-
-exports.handler = async (event, context) => {
-  // Verify this is a scheduled invocation (not a manual HTTP request)
-  if (!event.body && context.clientContext && context.clientContext.custom?.event === 'scheduled') {
-    try {
-      await processNextItem();
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ success: true, message: 'Dispatch tick executed.' })
-      };
-    } catch (err) {
-      logger.error({ err }, 'Scheduled function error');
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: err.message })
-      };
-    }
-  } else {
-    return {
-      statusCode: 403,
-      body: JSON.stringify({ error: 'Forbidden: Only scheduled invocations allowed.' })
-    };
-  }
-};
-```
-
-**Update `netlify.toml`**:
-```toml
-[[functions]]
-name = "scheduler"
-schedule = "*/15 * * * * *"
-```
-
-**Pros**:
-- Native to Netlify
-- No external dependencies
-- Keeps everything in one place
-
-**Cons**:
-- Scheduled functions are beta/limited
-- Timezone handling can be tricky
-- May have cold start delays
+**Error**: `Configuration property functions must be an object.`
 
 ---
 
@@ -163,18 +115,25 @@ schedule = "*/15 * * * * *"
 1. Run `npm start` to start `server.js` + the embedded scheduler
 2. The app works out-of-the-box with no external dependencies
 
-### For Production on Netlify-Only (MVP)
-1. Use **Option 2** (Zapier/EasyCron trigger)
-2. Set cron frequency to **every 15 minutes**
-3. Set up monitoring in Netlify logs to check `/api/queue/worker/status`
-4. Cost: $0 (free tier)
+### For Production on Netlify (MVP) ⭐ RECOMMENDED FOR NETLIFY-ONLY
+**Option 2: External Scheduler Service (Zapier/EasyCron)** - Free & proven
+1. Deploy frontend to Netlify (no code changes needed)
+2. Set environment variable: `DISABLE_SCHEDULER=true` (disable in-process scheduler)
+3. Set up free Zapier/EasyCron trigger to `POST /api/queue/worker/trigger` every 15 minutes
+4. **Cost**: $0 (free tier)
+5. **Timeline**: 30 minutes
+6. **Trade-off**: 15-minute email send delay (acceptable for MVP)
 
-### For Production Scaling
-1. Deploy backend to **Render.io** or **Railway.app**
+**Why not Option 3?** Netlify's `netlify.toml` parser doesn't support scheduled functions configuration. The feature may exist in the Netlify dashboard UI, but it cannot be configured via TOML.
+
+### For Production with Highest Reliability & Scaling
+**Option 1: Separate Always-On Backend** - Best long-term solution
+1. Deploy backend to **Render.io** (Standard tier ~$7/mo) or **Railway.app** (~$5/mo)
 2. Frontend stays on Netlify
-3. Set `API_BASE_URL` in the frontend to point to the backend
-4. Full scheduler runs continuously on the backend
-5. Cost: ~$10/month total
+3. Set `API_BASE_URL` in frontend `.env` to point to the backend
+4. Full scheduler runs continuously on backend with <15s email delay
+5. **Cost**: ~$10/month total
+6. **Timeline**: 2-3 hours (separate git repo)
 
 ---
 
@@ -185,7 +144,7 @@ Set these in your Netlify site settings > Build & Deploy > Environment:
 ```env
 # Core
 NODE_ENV=production
-FRONTEND_ORIGIN=https://your-app.netlify.app
+FRONTEND_ORIGIN=https://send.peakconix.site
 
 # Database
 DATABASE_URL=postgresql://user:pass@host/db
@@ -193,10 +152,10 @@ DATABASE_URL=postgresql://user:pass@host/db
 # Google OAuth
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-GOOGLE_REDIRECT_URI=https://your-app.netlify.app/.netlify/functions/api/accounts/callback
+GOOGLE_REDIRECT_URI=https://send.peakconix.site/.netlify/functions/api/accounts/callback
 
 # Tracking & Security
-TRACKING_BASE_URL=https://your-app.netlify.app
+TRACKING_BASE_URL=https://send.peakconix.site
 JWT_SECRET=<32-char-random-string>
 ENCRYPTION_KEY=<32-char-random-string>
 ACCESS_PIN=<4-6-digit-pin>
@@ -216,7 +175,7 @@ GEMINI_API_KEY=...
 ## Monitoring & Troubleshooting
 
 ### Check Scheduler Health
-**Endpoint**: `GET https://your-app.netlify.app/.netlify/functions/api/queue/worker/status`
+**Endpoint**: `GET https://send.peakconix.site/.netlify/functions/api/queue/worker/status`
 
 **Response** (should show active status):
 ```json
@@ -232,7 +191,7 @@ GEMINI_API_KEY=...
 
 ### Manual Trigger (for testing)
 ```bash
-curl -X POST https://your-app.netlify.app/.netlify/functions/api/queue/worker/trigger
+curl -X POST https://send.peakconix.site/.netlify/functions/api/queue/worker/trigger
 ```
 
 ### Check Logs
@@ -253,15 +212,78 @@ curl -X POST https://your-app.netlify.app/.netlify/functions/api/queue/worker/tr
 
 ## Next Steps
 
-1. **For MVP / Testing**: Deploy to Netlify with external cron (Option 2)
-2. **For Production**: Deploy backend to Render + keep frontend on Netlify
-3. **For Scale**: Use dedicated email service (SendGrid, Mailgun) instead of relying on scheduler
+**✅ To deploy to Netlify with external cron (Recommended for MVP):**
+
+1. Deploy to Netlify immediately:
+   ```bash
+   git push origin main
+   ```
+   Build will succeed with clean netlify.toml
+
+2. Set environment variable in Netlify dashboard:
+   ```env
+   DISABLE_SCHEDULER=true
+   ```
+   This disables the in-process cron since external trigger will fire.
+
+3. Set up free Zapier trigger (15 minutes to complete):
+   - Go to [zapier.com](https://zapier.com)
+   - Create **New Zap**
+   - Trigger: **Schedule by Zapier** → Every 15 minutes
+   - Action: **Webhooks** → **Catch Raw Hook**
+   - Configure: `POST https://send.peakconix.site/.netlify/functions/api/queue/worker/trigger`
+   - Add basic auth if you want security (optional)
+   - **Turn on**
+
+4. Alternatively, use **EasyCron.com** (free tier):
+   - Go to [easycron.com](https://www.easycron.com)
+   - Create HTTP request: `https://send.peakconix.site/.netlify/functions/api/queue/worker/trigger`
+   - Method: POST, Frequency: Every 15 minutes
+   - Enable
+
+5. Monitor:
+   - Go to Netlify dashboard > Functions > Logs
+   - Watch for POST requests to `/api/queue/worker/trigger`
+   - Check for successful email dispatch
 
 ---
 
-## Related Files
-- `scheduler.js` — The core email dispatch worker
-- `routes/queue.js` — Status & trigger endpoints
-- `netlify.toml` — Current Netlify config
-- `netlify/functions/api.js` — Serverless function wrapper
-- `DEPLOYMENT.md` — Full production deployment guide
+**🚀 To scale with separate backend (production-grade):**
+
+1. Deploy backend to Render/Railway (see **Option 1** above)
+2. Frontend stays on Netlify
+3. Update frontend `.env` to point to backend API
+4. Scheduler runs on backend continuously
+
+---
+
+## Environment Variables for Netlify
+
+```env
+# Required for Netlify deployment
+NODE_ENV=production
+FRONTEND_ORIGIN=https://send.peakconix.site
+DISABLE_SCHEDULER=true    # CRITICAL: Disable in-process cron
+
+# Database (PostgreSQL required, SQLite won't persist)
+DATABASE_URL=postgresql://user:pass@host/db
+
+# Google OAuth
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REDIRECT_URI=https://send.peakconix.site/.netlify/functions/api/accounts/callback
+
+# Security
+TRACKING_BASE_URL=https://send.peakconix.site
+JWT_SECRET=<32-char-random-string>
+ENCRYPTION_KEY=<32-char-random-string>
+ACCESS_PIN=<4-6-digit-pin>
+
+# Gmail Integration
+GMAIL_CLIENT_ID=...
+GMAIL_CLIENT_SECRET=...
+GEMINI_API_KEY=...
+
+# Scheduler (if using external trigger)
+SCHEDULER_BATCH_SIZE=10
+```

@@ -52,4 +52,44 @@ function requireAuth(req, res, next) {
   }
 }
 
-module.exports = { requireAuth, COOKIE_NAME };
+/**
+ * Resolve user's default workspace and attach to req.
+ * Must be used AFTER requireAuth.
+ * Sets req.workspace with workspace object for database queries.
+ */
+async function requireWorkspace(req, res, next) {
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({ error: 'User not authenticated.' });
+  }
+
+  try {
+    const { getDb } = require('../db');
+    const db = await getDb();
+
+    // Get user's default workspace from workspace_members
+    const memberRow = await db
+      .prepare('SELECT workspace_id FROM workspace_members WHERE user_id = ? ORDER BY workspace_id ASC LIMIT 1')
+      .get(req.user.id);
+
+    if (!memberRow) {
+      return res.status(403).json({ error: 'User is not a member of any workspace.' });
+    }
+
+    // Fetch the workspace details
+    const workspace = await db
+      .prepare('SELECT * FROM workspaces WHERE id = ?')
+      .get(memberRow.workspace_id);
+
+    if (!workspace) {
+      return res.status(403).json({ error: 'Workspace not found.' });
+    }
+
+    req.workspace = workspace; // { id, name, created_at }
+    next();
+  } catch (err) {
+    logger.error({ err }, 'Error resolving workspace');
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { requireAuth, requireWorkspace, COOKIE_NAME };
