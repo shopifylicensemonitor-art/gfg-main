@@ -6,6 +6,7 @@ import Landing from "./pages/Landing";
 import { initCapacitor, isNativePlatform } from "./lib/capacitor";
 import { navigateToRoute } from "./lib/router";
 import clarity from "@microsoft/clarity";
+import { api } from "./api";
 
 // Lazy-load non-critical routes for faster initial load
 const Index = lazy(() => import("./pages/Index"));

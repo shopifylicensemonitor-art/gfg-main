@@ -1465,3 +1465,20 @@ export default function Campaigns({ requirePin }: CampaignsProps) {
                     Series follows the stored recipient order; random shuffles before queue population.
                   </p>
                 </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => setEditingCampaign(null)} className="h-9 text-[11px]">
+                  Cancel
+                </Button>
+                <Button type="submit" className="h-9 text-[11px]">
+                  Save Changes
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </AppShell>
+  );
+}
+
