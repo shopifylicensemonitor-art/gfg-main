@@ -173,8 +173,10 @@ router.post('/google-url', async (req, res) => {
       prompt: 'consent',
       state: JSON.stringify(stateObj),
       scope: [
+        'https://www.googleapis.com/auth/gmail.modify',
         'https://www.googleapis.com/auth/gmail.send',
         'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/userinfo.profile',
       ],
     });
     res.json({ url });
