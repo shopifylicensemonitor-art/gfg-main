@@ -320,7 +320,9 @@ export const api = {
     method: 'PUT',
     body: JSON.stringify(data)
   }),
-  deleteCampaign: (id: number) => apiFetch<{ success: boolean }>(`/api/campaigns/${id}`, { method: 'DELETE' }),
+  deleteCampaign: (id: number) => apiFetch<{ success: boolean; message?: string }>(`/api/campaigns/${id}`, {
+    method: 'DELETE'
+  }),
   launchCampaign: (id: number) => apiFetch<{ success: boolean; message: string; processing_started?: boolean; processing_error?: string; recipients_count?: number; accounts_count?: number }>(`/api/campaigns/${id}/launch`, { method: 'POST' }),
   retryProcessing: (id: number) => apiFetch<{ success: boolean; processing_started?: boolean; processing_error?: string }>(`/api/campaigns/${id}/retry-processing`, { method: 'POST' }),
   retryAll: (id: number, opts?: { max_iterations?: number; max_seconds?: number }) => apiFetch<{ success: boolean; processed_count?: number; remaining_pending?: number; iterations?: number; processing_error?: string }>(`/api/campaigns/${id}/retry-all`, { method: 'POST', body: JSON.stringify(opts || {}) }),

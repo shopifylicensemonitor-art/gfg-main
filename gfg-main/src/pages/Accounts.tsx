@@ -272,9 +272,14 @@ export default function Accounts({ requirePin }: AccountsProps) {
   };
 
   const getInitials = (email: string) => {
-    const username = email.split('@')[0];
-    const parts = username.split(/[._-]/);
-    return parts.map(p => p[0]?.toUpperCase() || '').join('').slice(0, 2) || email.slice(0, 2).toUpperCase();
+    try {
+      const safe = String(email || 'CP').trim();
+      const username = safe.split('@')[0] || safe;
+      const parts = username.split(/[._\-\s]+/).filter(Boolean);
+      return parts.map(p => p[0]?.toUpperCase() || '').filter(Boolean).join('').slice(0, 2) || safe.slice(0, 2).toUpperCase() || 'CP';
+    } catch {
+      return 'CP';
+    }
   };
 
   const activeCount = accounts.filter(a => a.status === 'active').length;

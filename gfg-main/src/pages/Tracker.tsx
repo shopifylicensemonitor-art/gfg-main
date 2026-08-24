@@ -120,14 +120,19 @@ export default function Tracker() {
 
   // Get recipient initials for avatar
   const getInitials = (email: string, name?: string) => {
-    if (name && name.trim()) {
-      const parts = name.trim().split(/\s+/);
-      if (parts.length >= 2) {
-        return (parts[0][0] + parts[1][0]).toUpperCase();
+    try {
+      if (name && typeof name === 'string' && name.trim()) {
+        const parts = name.trim().split(/\s+/).filter(Boolean);
+        if (parts.length >= 2 && parts[0]?.[0] && parts[1]?.[0]) {
+          return (parts[0][0] + parts[1][0]).toUpperCase();
+        }
+        if (parts[0]) return parts[0].substring(0, 2).toUpperCase();
       }
-      return parts[0].substring(0, 2).toUpperCase();
+      const safeEmail = String(email || 'CP').trim();
+      return safeEmail.substring(0, 2).toUpperCase() || 'CP';
+    } catch {
+      return 'CP';
     }
-    return email.substring(0, 2).toUpperCase();
   };
 
   return (
