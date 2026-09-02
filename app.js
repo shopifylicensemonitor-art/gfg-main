@@ -23,6 +23,7 @@ if (!process.env.AI_ENCRYPTION_KEY) {
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 const path = require('path');
 const { getDb } = require('./db');
 const { requireAuth } = require('./middleware/session');
@@ -112,6 +113,7 @@ const corsOptions = {
   credentials: true,
 };
 app.use(cors(corsOptions));
+app.use(compression());
 
 // Cookie parser — required for HttpOnly session cookies
 app.use(cookieParser());
@@ -163,16 +165,24 @@ app.get('/api/health', async (_req, res) => {
 });
 
 // Dashboard stats aggregator (user-scoped via RLS/UUID tenant enforcement)
+const dashboardCache = new Map();
+const DASHBOARD_CACHE_TTL_MS = 15_000;
 app.get('/api/dashboard', generalLimiter, requireAuth, attachTenant, async (req, res) => {
   try {
     const db = await getDb();
+    const userId = req.userId || req.user.id;
+    const cacheKey = String(userId);
+    const cached = dashboardCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json(cached.payload);
+    }
 
-    const totalSentRow = await db.prepare("SELECT SUM(daily_sent) as today_sent FROM accounts WHERE status = 'active'").get() || { today_sent: 0 };
-    const activeAccountsRow = await db.prepare("SELECT COUNT(*) as active_accounts FROM accounts WHERE status = 'active'").get() || { active_accounts: 0 };
-    const queueRow = await db.prepare("SELECT COUNT(*) as pending FROM queue WHERE status = 'pending'").get() || { pending: 0 };
-    const campaignsRow = await db.prepare("SELECT COUNT(*) as active FROM campaigns WHERE status = 'sending'").get() || { active: 0 };
-    const failedRow = await db.prepare("SELECT SUM(failed_count) as failed FROM campaigns").get() || { failed: 0 };
-    const trackingRow = await db.prepare("SELECT COALESCE(SUM(opens_count), 0) as opens, COALESCE(SUM(clicks_count), 0) as clicks FROM queue").get() || { opens: 0, clicks: 0 };
+    const totalSentRow = await db.prepare("SELECT COALESCE(SUM(daily_sent), 0) AS today_sent FROM accounts WHERE status = 'active' AND user_id = ?").get(userId) || { today_sent: 0 };
+    const activeAccountsRow = await db.prepare("SELECT COUNT(*) AS active_accounts FROM accounts WHERE status = 'active' AND user_id = ?").get(userId) || { active_accounts: 0 };
+    const queueRow = await db.prepare("SELECT COUNT(*) AS pending FROM queue WHERE status = 'pending' AND user_id = ?").get(userId) || { pending: 0 };
+    const campaignsRow = await db.prepare("SELECT COUNT(*) AS active FROM campaigns WHERE status = 'sending' AND user_id = ?").get(userId) || { active: 0 };
+    const failedRow = await db.prepare("SELECT COALESCE(SUM(failed_count), 0) AS failed FROM campaigns WHERE user_id = ?").get(userId) || { failed: 0 };
+    const trackingRow = await db.prepare("SELECT COALESCE(SUM(opens_count), 0) AS opens, COALESCE(SUM(clicks_count), 0) AS clicks FROM queue WHERE user_id = ?").get(userId) || { opens: 0, clicks: 0 };
 
     const stats = {
       today_sent: totalSentRow.today_sent || 0,
@@ -185,28 +195,34 @@ app.get('/api/dashboard', generalLimiter, requireAuth, attachTenant, async (req,
     };
 
     const campaigns = await db.prepare(`
-      SELECT c.*,
+      SELECT c.id, c.name, c.status, c.created_at,
              COALESCE(SUM(q.opens_count), 0) as total_opens,
              COALESCE(SUM(q.clicks_count), 0) as total_clicks
       FROM campaigns c
       LEFT JOIN queue q ON c.id = q.campaign_id
-      WHERE c.workspace_id = ?
-      GROUP BY c.id
+      WHERE c.user_id = ?
+      GROUP BY c.id, c.name, c.status, c.created_at
       ORDER BY c.id DESC
-      LIMIT 5
-    `).all(wsId);
+      LIMIT 25
+    `).all(userId);
 
     const queue = await db.prepare(`
-      SELECT q.*, c.name as campaign_name, a.email as account_email
+      SELECT q.id, q.campaign_id, q.status, q.created_at,
+             c.name as campaign_name, a.email as account_email
       FROM queue q
       LEFT JOIN campaigns c ON q.campaign_id = c.id
       LEFT JOIN accounts a ON q.account_id = a.id
-      WHERE q.workspace_id = ?
+      WHERE q.user_id = ?
       ORDER BY q.id DESC
-      LIMIT 10
-    `).all(wsId);
+      LIMIT 25
+    `).all(userId);
 
-    res.json({ stats, campaigns, queue });
+    const payload = { stats, campaigns, queue };
+    for (const [key, entry] of dashboardCache) {
+      if (entry.expiresAt <= Date.now()) dashboardCache.delete(key);
+    }
+    dashboardCache.set(cacheKey, { expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS, payload });
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

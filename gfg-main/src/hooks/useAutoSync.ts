@@ -30,7 +30,8 @@ export interface SyncState {
   error: string | null;
 }
 
-const DEFAULT_INTERVAL_MS = 30_000; // 30 seconds
+const DEFAULT_INTERVAL_MS = 60_000; // 60 seconds
+const ACTIVE_INTERVAL_MS = 30_000; // 30 seconds while campaigns are sending
 
 // ---------------------------------------------------------------------------
 // useAutoSync Hook
@@ -59,7 +60,7 @@ export function useAutoSync(enabled = true, intervalMs = DEFAULT_INTERVAL_MS) {
   const isMountedRef = useRef(true);
 
   const doSync = useCallback(async () => {
-    if (!isMountedRef.current) return;
+    if (!isMountedRef.current || document.visibilityState !== 'visible') return;
 
     setState((prev) => ({ ...prev, isSyncing: true, error: null }));
 
@@ -102,8 +103,7 @@ export function useAutoSync(enabled = true, intervalMs = DEFAULT_INTERVAL_MS) {
     (activeCampaigns: number) => {
       if (!isMountedRef.current || !enabled) return;
 
-      // Fast-poll (8s) while campaigns are actively sending; slow-poll otherwise
-      const nextInterval = activeCampaigns > 0 ? 8_000 : intervalMs;
+      const nextInterval = activeCampaigns > 0 ? ACTIVE_INTERVAL_MS : intervalMs;
 
       timerRef.current = setTimeout(async () => {
         const result = await doSync();
@@ -119,16 +119,30 @@ export function useAutoSync(enabled = true, intervalMs = DEFAULT_INTERVAL_MS) {
     if (!enabled) return;
 
     // Initial sync immediately on mount
-    (async () => {
+    const syncWhenVisible = async () => {
+      if (document.visibilityState !== 'visible') return;
       const result = await doSync();
       scheduleNext(result?.activeCampaigns ?? 0);
-    })();
+    };
+    syncWhenVisible();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        syncWhenVisible();
+      } else if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       isMountedRef.current = false;
       if (timerRef.current) {
         clearTimeout(timerRef.current);
       }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [doSync, scheduleNext, enabled]);
 
