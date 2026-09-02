@@ -12,8 +12,6 @@
  *   db.transaction(fn)               → async callable wrapper
  */
 
-require('dotenv').config();
-
 let ready = null; // Promise that resolves to the wrapped db
 
 // ============================================================================

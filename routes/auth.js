@@ -245,30 +245,37 @@ router.get('/callback', async (req, res) => {
 /** PIN Login endpoint for direct access PIN authentication. */
 router.post('/pin-login', async (req, res) => {
   const { pin } = req.body;
-  const configuredPin = process.env.ACCESS_PIN || '123456';
+  const configuredPin = String(process.env.ACCESS_PIN || '').trim();
 
-  if (!pin || String(pin).trim() !== String(configuredPin).trim()) {
+  if (!configuredPin) {
+    return res.status(401).json({
+      error: 'PIN login is not configured. Set ACCESS_PIN and ADMIN_EMAIL to enable this flow.'
+    });
+  }
+
+  if (!pin || String(pin).trim() !== configuredPin) {
     return res.status(401).json({ error: 'Invalid access PIN.' });
   }
 
   try {
     const db = await getDb();
-    let adminUser = await db.prepare("SELECT * FROM users WHERE email = 'admin@peakxender.local'").get();
-    
+    const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+    if (!adminEmail) {
+      return res.status(403).json({
+        error: 'PIN login requires ADMIN_EMAIL to be configured to a valid admin user.'
+      });
+    }
+
+    const adminUser = await db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').get(adminEmail);
     if (!adminUser) {
-      try {
-        const result = await db.prepare(
-          "INSERT INTO users (email, name, role, email_verified, auth_provider) VALUES ('admin@peakxender.local', 'Admin', 'admin', true, 'pin')"
-        ).run();
-        adminUser = { id: result.lastInsertRowid || 1, email: 'admin@peakxender.local', name: 'Admin', role: 'admin' };
-      } catch (_) {
-        adminUser = { id: 1, email: 'admin@peakxender.local', name: 'Admin', role: 'admin' };
-      }
+      return res.status(403).json({
+        error: 'PIN login requires an existing admin user. Create or configure the admin account before enabling PIN access.'
+      });
     }
 
     const token = jwt.sign(
-      { id: adminUser.id, email: adminUser.email, name: adminUser.name || 'Admin', role: 'admin' },
-      getJwtSecret ? getJwtSecret() : (process.env.JWT_SECRET || 'peakxender-dev-secret-change-me'),
+      { id: adminUser.id, email: adminUser.email, name: adminUser.name || 'Admin', role: adminUser.role || 'admin' },
+      process.env.JWT_SECRET || 'peakxender-dev-secret-change-me',
       { expiresIn: '7d' }
     );
 
@@ -276,7 +283,7 @@ router.post('/pin-login', async (req, res) => {
       success: true,
       token,
       message: 'PIN verified successfully.',
-      user: { id: adminUser.id, email: adminUser.email, name: adminUser.name || 'Admin', role: 'admin' }
+      user: { id: adminUser.id, email: adminUser.email, name: adminUser.name || 'Admin', role: adminUser.role || 'admin' }
     });
   } catch (err) {
     logger.error({ err }, 'PIN login error');
