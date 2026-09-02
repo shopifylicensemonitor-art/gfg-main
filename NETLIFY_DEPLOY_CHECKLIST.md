@@ -1,4 +1,6 @@
-# Netlify Deployment Checklist - Scheduled Function (Option 3)
+# Netlify Staging/Preview Deployment Checklist
+
+> This path is for staging and previews only. Production uses the persistent Node API plus one dedicated worker described in `DEPLOYMENT.md`. Never point both schedulers at the same production database.
 
 ## ✅ What's Already Set Up
 

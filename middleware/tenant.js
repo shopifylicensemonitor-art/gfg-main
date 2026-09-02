@@ -11,9 +11,15 @@
 const logger = require('../logger');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const INTEGER_ID_REGEX = /^\d+$/;
 
 function isValidUUID(id) {
   return typeof id === 'string' && UUID_REGEX.test(id);
+}
+
+function isValidTenantId(id) {
+  return isValidUUID(id) || (typeof id === 'number' && Number.isSafeInteger(id) && id > 0)
+    || (typeof id === 'string' && INTEGER_ID_REGEX.test(id) && Number(id) > 0);
 }
 
 async function attachTenant(req, res, next) {
@@ -27,14 +33,14 @@ async function attachTenant(req, res, next) {
 
     const userId = req.user.id;
 
-    if (!isValidUUID(userId)) {
+    if (!isValidTenantId(userId)) {
       logger.warn(
         { userId, userIdType: typeof userId },
-        'Invalid user ID format - expected UUID'
+        'Invalid user ID format - expected UUID or positive numeric ID'
       );
       return res.status(401).json({
         error: 'Invalid user ID format.',
-        message: 'User ID must be a valid UUID from Supabase.'
+        message: 'User ID must be a valid UUID or positive numeric database ID.'
       });
     }
 
@@ -62,4 +68,4 @@ function getUserIdFromToken(jwtPayload) {
   return isValidUUID(id) ? id : null;
 }
 
-module.exports = { attachTenant, isValidUUID, getUserIdFromToken };
+module.exports = { attachTenant, isValidUUID, isValidTenantId, getUserIdFromToken };

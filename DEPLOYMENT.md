@@ -1,10 +1,10 @@
 # Production Deployment Guide
 
-This document outlines the necessary steps to deploy the Peak Xender / OutreachFlow Pro application to modern cloud providers like Railway, Render, Heroku, or DigitalOcean App Platform.
+This document describes the persistent production deployment for Peak Xender / OutreachFlow Pro. Use the separate Netlify configuration only for staging/preview environments.
 
 ## 1. Architecture Overview
 The application is a Full-Stack Node.js monolith:
-- **Backend**: Express.js REST API + Node-Cron background worker (`server.js` & `scheduler.js`).
+- **Backend**: Express.js REST API (`server.js`) plus one separate always-on queue worker (`worker.js` & `scheduler.js`).
 - **Frontend**: React (Vite) single-page application compiled to static files (`gfg-main/dist`).
 - **Database**: Supports PostgreSQL (recommended for production) or SQLite (fallback for local dev).
 
@@ -13,8 +13,10 @@ When configuring your deployment on a cloud provider, use the following commands
 
 - **Build Command**: `npm install && npm run build`
   *(This installs root and frontend dependencies, builds the Vite React app, and moves the static assets into the root `dist` folder).*
-- **Start Command**: `npm start`
-  *(This executes `node server.js` which serves both the API routes, the background scheduler, and the static frontend).*
+- **API Start Command**: `npm start`
+  *(This executes `node server.js`, serving the API and static frontend.)*
+- **Worker Start Command**: `npm run worker`
+  *(Run exactly one worker process against the production queue.)*
 
 ## 3. Database Configuration (CRITICAL)
 Cloud providers like Render and Railway use **ephemeral file systems**. If you use the default SQLite database (`sqlite.db`), your data will be permanently wiped every time the server restarts or deploys.
@@ -52,8 +54,9 @@ You must configure the following Environment Variables in your cloud provider's 
 | `GMAIL_REDIRECT_URI` | OAuth2 Redirect URI (must match Google Cloud Console). | `https://send.peakconix.site/api/accounts/oauth/callback` |
 
 ## 5. Background Worker (24/7 Sending)
-The application includes a continuous background worker (`scheduler.js`) that ticks every 15 seconds to dispatch queued emails. 
-- **Important**: Because this worker runs inside the main Node.js process, **your application must not "sleep"**. 
+Run exactly one dedicated `npm run worker` process. It polls the queue every 15 seconds by default and dispatches queued emails.
+- **Important**: Keep both the API and worker on non-sleeping services.
+- Do not run the Netlify scheduled function against the same production database.
 - If using Render's Free Tier, the instance will spin down after 15 minutes of inactivity, pausing your email dispatching. Upgrade to a paid/standard tier or use Railway to ensure 24/7 background worker execution.
 
 ## 6. Domain & DNS Setup

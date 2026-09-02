@@ -765,6 +765,15 @@ ready = (async () => {
         await adapter.exec("ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS message_id TEXT;");
       } catch (_) {}
       try {
+        await adapter.exec("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS workspace_id INTEGER;");
+        await adapter.exec("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS workspace_id INTEGER;");
+        await adapter.exec("ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS workspace_id INTEGER;");
+        await adapter.exec("ALTER TABLE queue ADD COLUMN IF NOT EXISTS workspace_id INTEGER;");
+        await adapter.exec("ALTER TABLE logs ADD COLUMN IF NOT EXISTS workspace_id INTEGER;");
+        await adapter.exec("ALTER TABLE templates ADD COLUMN IF NOT EXISTS workspace_id INTEGER;");
+        await adapter.exec("ALTER TABLE campaign_steps ADD COLUMN IF NOT EXISTS workspace_id INTEGER;");
+      } catch (_) {}
+      try {
         await adapter.exec("DELETE FROM inbox_messages WHERE id NOT IN (SELECT MIN(id) FROM inbox_messages GROUP BY message_id) AND message_id IS NOT NULL;");
       } catch (_) {}
       try {
@@ -850,6 +859,27 @@ ready = (async () => {
     } catch (_) {}
     try {
       await wrapped.exec("ALTER TABLE logs ADD COLUMN queue_id INTEGER;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE accounts ADD COLUMN workspace_id INTEGER;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE contacts ADD COLUMN workspace_id INTEGER;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE campaigns ADD COLUMN workspace_id INTEGER;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE queue ADD COLUMN workspace_id INTEGER;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE logs ADD COLUMN workspace_id INTEGER;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE templates ADD COLUMN workspace_id INTEGER;");
+    } catch (_) {}
+    try {
+      await wrapped.exec("ALTER TABLE campaign_steps ADD COLUMN workspace_id INTEGER;");
     } catch (_) {}
     try {
       await wrapped.exec(INDEX_DDL);
