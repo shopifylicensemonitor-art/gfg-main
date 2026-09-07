@@ -35,3 +35,28 @@ test('pin login rejects when ACCESS_PIN is not configured', async () => {
     if (originalSecret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = originalSecret;
   }
 });
+
+test('session middleware fails closed when JWT_SECRET is not configured', async () => {
+  const originalSecret = process.env.JWT_SECRET;
+  delete process.env.JWT_SECRET;
+  delete require.cache[require.resolve('../middleware/session')];
+  const { requireAuth, COOKIE_NAME } = require('../middleware/session');
+  const app = express();
+  app.use((req, res, next) => {
+    req.cookies = { [COOKIE_NAME]: 'not-a-valid-token' };
+    next();
+  });
+  app.use(requireAuth);
+  const server = app.listen(0);
+
+  try {
+    const address = server.address();
+    const response = await fetch(`http://127.0.0.1:${address.port}/protected`);
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'Authentication is not configured.' });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    delete require.cache[require.resolve('../middleware/session')];
+    if (originalSecret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = originalSecret;
+  }
+});

@@ -275,7 +275,7 @@ router.post('/pin-login', async (req, res) => {
 
     const token = jwt.sign(
       { id: adminUser.id, email: adminUser.email, name: adminUser.name || 'Admin', role: adminUser.role || 'admin' },
-      process.env.JWT_SECRET || 'peakxender-dev-secret-change-me',
+      getJwtSecret(),
       { expiresIn: '7d' }
     );
 

@@ -6,9 +6,14 @@
 
 require('dotenv').config();
 
+// JWT signing and verification must never use an implicit shared secret.
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET is required in every environment.');
+}
+
 // Ensure AI_ENCRYPTION_KEY is set in production to protect stored API keys.
-if (process.env.NODE_ENV === 'production' && (!process.env.AI_ENCRYPTION_KEY || !process.env.JWT_SECRET)) {
-  throw new Error('AI_ENCRYPTION_KEY and JWT_SECRET are required in production.');
+if (process.env.NODE_ENV === 'production' && !process.env.AI_ENCRYPTION_KEY) {
+  throw new Error('AI_ENCRYPTION_KEY is required in production.');
 }
 
 if (process.env.NODE_ENV === 'production' && (!process.env.DATABASE_URL || process.env.USE_SQLITE === 'true')) {
@@ -16,11 +21,7 @@ if (process.env.NODE_ENV === 'production' && (!process.env.DATABASE_URL || proce
 }
 
 if (!process.env.AI_ENCRYPTION_KEY) {
-  if (!process.env.JWT_SECRET) {
-    console.warn('Warning: AI_ENCRYPTION_KEY and JWT_SECRET are both missing. Using dev fallbacks which are insecure.');
-  } else {
-    console.warn('Warning: AI_ENCRYPTION_KEY not set; falling back to JWT_SECRET for key material. This is not recommended in production.');
-  }
+  console.warn('Warning: AI_ENCRYPTION_KEY not set; falling back to JWT_SECRET for key material. This is not recommended in production.');
 }
 
 const express = require('express');

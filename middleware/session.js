@@ -11,7 +11,7 @@
 const jwt = require('jsonwebtoken');
 const logger = require('../logger');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'peakxender-dev-secret-change-me';
+const JWT_SECRET = process.env.JWT_SECRET || null;
 const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET || JWT_SECRET;
 const COOKIE_NAME = 'session_token';
 
@@ -36,6 +36,11 @@ function requireAuth(req, res, next) {
 
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized. No session token provided.' });
+  }
+
+  if (!JWT_SECRET) {
+    logger.error('JWT_SECRET is not configured; refusing to verify session tokens.');
+    return res.status(503).json({ error: 'Authentication is not configured.' });
   }
 
   try {
